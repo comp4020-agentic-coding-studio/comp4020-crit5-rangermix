@@ -1,16 +1,203 @@
+/* paper jump --- the palette and the overlay. Everything else is canvas.
+   See spec/paper-jump.md §8 for the art direction these tokens encode. */
+
+:root {
+  --wall: #f2efe8;
+  --shaft: #faf8f4;
+  --ink: #2a2925;
+  --paper: #fffdf8;
+  --accent: #d9553f;
+
+  --pad: 18px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
 body {
+  height: 100%;
   margin: 0;
-  padding: 2rem;
-  font-family: system-ui, sans-serif;
-  line-height: 1.6;
-  color: #1a1a1a;
+  padding: 0;
+  overflow: hidden;
+  overscroll-behavior: none;
+  background: var(--wall);
+  color: var(--ink);
+  font: 400 13px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-variant-numeric: tabular-nums;
+  -webkit-font-smoothing: antialiased;
+  -webkit-tap-highlight-color: transparent;
 }
 
-main {
-  max-width: 40rem;
-  margin: 0 auto;
+#stage {
+  display: block;
+  width: 100%;
+  height: 100%;
+  /* the canvas owns every gesture: no scroll, no pinch, no double-tap zoom */
+  touch-action: none;
+  outline: none;
 }
 
-a {
-  color: #0b5fff;
+/* ---------------------------------------------------------------- overlay
+   Three elements, one signature. Fixed to the viewport corners, inert to
+   the pointer so a drag that starts over them still aims the shot --- the
+   source link is the single exception. */
+
+.hud {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  padding: calc(var(--pad) + env(safe-area-inset-top)) calc(var(--pad) + env(safe-area-inset-right))
+    calc(var(--pad) + env(safe-area-inset-bottom)) calc(var(--pad) + env(safe-area-inset-left));
+}
+
+.hud > * {
+  position: absolute;
+}
+
+/* lives --- top left */
+
+.hud__lives {
+  top: calc(var(--pad) + env(safe-area-inset-top));
+  left: calc(var(--pad) + env(safe-area-inset-left));
+  display: flex;
+  gap: 8px;
+}
+
+.hud__lives.is-shaken {
+  animation: shake 260ms ease-out;
+}
+
+.dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--ink);
+  opacity: 0.75;
+  transition:
+    transform 260ms cubic-bezier(0.4, 0, 0.2, 1),
+    opacity 260ms ease-out;
+}
+
+.dot.is-lost {
+  transform: scale(0);
+  opacity: 0;
+}
+
+@keyframes shake {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  25% {
+    transform: translateX(-3px);
+  }
+  75% {
+    transform: translateX(3px);
+  }
+}
+
+/* score --- top right */
+
+.hud__score {
+  top: calc(var(--pad) + env(safe-area-inset-top));
+  right: calc(var(--pad) + env(safe-area-inset-right));
+  font-size: 15px;
+  line-height: 1;
+  opacity: 0.75;
+}
+
+.hud__score.is-bumped {
+  animation: bump 180ms ease-out;
+}
+
+@keyframes bump {
+  50% {
+    transform: translateY(-2px);
+  }
+}
+
+/* signature --- bottom left. The title is the page's one h1; the source link
+   is what makes the required <nav> landmark point somewhere real. */
+
+.hud__sig {
+  bottom: calc(var(--pad) + env(safe-area-inset-bottom));
+  left: calc(var(--pad) + env(safe-area-inset-left));
+  line-height: 1.35;
+}
+
+.hud__title {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 400;
+  letter-spacing: 0.02em;
+  opacity: 0.45;
+}
+
+.hud__sig nav a {
+  pointer-events: auto;
+  font-size: 10px;
+  color: inherit;
+  text-decoration: none;
+  opacity: 0.28;
+  transition: opacity 150ms ease-out;
+}
+
+.hud__sig nav a:hover,
+.hud__sig nav a:focus-visible {
+  opacity: 0.6;
+  text-decoration: underline;
+}
+
+/* ------------------------------------------------------------- end screen */
+
+.end {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  background: color-mix(in srgb, var(--wall) 55%, transparent);
+  pointer-events: none;
+  animation: fade-in 320ms ease-out;
+}
+
+.end[hidden] {
+  display: none;
+}
+
+.end__line {
+  margin: 0;
+  font-size: 15px;
+  opacity: 0.8;
+}
+
+.end__restart {
+  margin-top: 22px;
+  font-size: 12px;
+  opacity: 0.4;
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+}
+
+/* --------------------------------------------------------- reduced motion
+   Motion that exists to feel good is dropped; motion that carries state
+   (a life leaving, the score changing) becomes an instant change rather
+   than nothing at all. The canvas honours the same query in render.ts. */
+
+@media (prefers-reduced-motion: reduce) {
+  .dot,
+  .hud__score,
+  .hud__lives,
+  .end {
+    transition-duration: 1ms;
+    animation: none;
+  }
 }
