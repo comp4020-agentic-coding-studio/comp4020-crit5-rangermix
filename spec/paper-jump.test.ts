@@ -454,3 +454,199 @@ function scoresFrom(
   }
   return false;
 }
+// ------------------------------------------------------------ the rulebook
+//
+// Lives, combo and when a run ends, asserted with no canvas anywhere.
+
+import { STARTING_LIVES } from "../src/config.ts";
+import { initial, reduce } from "../src/game.ts";
+import type { GameEvent, GameState } from "../src/game.ts";
+
+const play = (state: GameState, ...events: GameEvent[]): GameState =>
+  events.reduce((s, e) => reduce(s, e).state, state);
+
+/** Fly the current shot to whatever it ends in. */
+function settle(state: GameState): GameState {
+  let s = state;
+  for (let i = 0; i < 2000 && s.phase === "flight"; i++) s = reduce(s, { type: "tick", dt: 1 / 60 }).state;
+  return s;
+}
+
+/** Throw the shot away: straight down, which can only ever be a miss. */
+function throwAway(state: GameState): GameState {
+  const aimed = play(state, { type: "aimStart" }, {
+    type: "aimMove",
+    pull: { x: 0, y: -200 },
+    pullPx: 200,
+  });
+  return settle(play(aimed, { type: "aimEnd" }));
+}
+
+/** Let the camera finish its climb so the next shot can be aimed. */
+function land(state: GameState): GameState {
+  let s = state;
+  for (let i = 0; i < 200 && s.phase === "panning"; i++) s = reduce(s, { type: "tick", dt: 1 / 60 }).state;
+  return s;
+}
+
+describe("lives and the end of a run", () => {
+  it("starts with three lives and one level", () => {
+    const s = initial(1);
+    expect(s.lives).toBe(STARTING_LIVES);
+    expect(s.level).toBe(1);
+    expect(s.score).toBe(0);
+  });
+
+  it("takes one life per miss and keeps playing", () => {
+    let s = initial(1);
+    for (const expected of [2, 1, 0]) {
+      s = throwAway(s);
+      expect(s.lives).toBe(expected);
+      expect(s.phase).toBe("aiming");
+    }
+  });
+
+  it("ends on the FOURTH miss, not the third", () => {
+    // three lives means four attempts. Getting this off by one either robs
+    // the player of a turn or hands them a free one.
+    let s = initial(1);
+    s = throwAway(s);
+    s = throwAway(s);
+    s = throwAway(s);
+    expect(s.phase).toBe("aiming");
+    expect(s.lives).toBe(0);
+    s = throwAway(s);
+    expect(s.phase).toBe("gameover");
+  });
+
+  it("never lowers the score on a miss", () => {
+    let s = initial(1);
+    const before = s.score;
+    s = throwAway(s);
+    expect(s.score).toBe(before);
+  });
+
+  it("does not let the tap that ended the run restart it", () => {
+    let s = initial(1);
+    for (let i = 0; i < 4; i++) s = throwAway(s);
+    expect(s.phase).toBe("gameover");
+    s = play(s, { type: "aimStart" });
+    expect(s.phase).toBe("gameover");
+    // ...but a moment later, any tap does
+    s = play(s, { type: "tick", dt: 1 }, { type: "aimStart" });
+    expect(s.phase).toBe("aiming");
+    expect(s.lives).toBe(STARTING_LIVES);
+    expect(s.score).toBe(0);
+  });
+
+  it("remembers the best score across a restart", () => {
+    let s = { ...initial(1), score: 42 };
+    for (let i = 0; i < 4; i++) s = throwAway(s);
+    expect(s.best).toBe(42);
+    s = play(s, { type: "tick", dt: 1 }, { type: "aimStart" });
+    expect(s.best).toBe(42);
+    expect(s.score).toBe(0);
+  });
+});
+
+describe("scoring a run", () => {
+  /** Find a launch that scores from the current state, and take it. */
+  function scoreOnce(state: GameState): GameState | null {
+    for (let angle = 10; angle <= 170; angle += 0.5) {
+      for (const power of [0.6, 0.7, 0.8, 0.9, 1]) {
+        const a = (angle * Math.PI) / 180;
+        const pull = {
+          x: Math.cos(a) * FULL_POWER_PULL * power,
+          y: Math.sin(a) * FULL_POWER_PULL * power,
+        };
+        const attempt = settle(
+          play(state, { type: "aimStart" }, { type: "aimMove", pull, pullPx: 200 }, { type: "aimEnd" }),
+        );
+        if (attempt.level > state.level) return land(attempt);
+      }
+    }
+    return null;
+  }
+
+  it("raises the level on a capture and not on a miss", () => {
+    const start = initial(7);
+    const scored = scoreOnce(start);
+    expect(scored, "no launch in the whole sweep scored on level 1").not.toBeNull();
+    expect(scored!.level).toBe(2);
+    expect(scored!.combo).toBe(1);
+    expect(scored!.score).toBe(1);
+
+    const missed = throwAway(scored!);
+    expect(missed.level).toBe(2);
+    expect(missed.combo).toBe(0);
+  });
+
+  it("makes the bin you land in the bin you throw from", () => {
+    // the whole idea of the game, asserted: the target's offset from the wall
+    // and its motion carry over intact
+    const start = initial(7);
+    const target = start.sim.world.target;
+    const scored = scoreOnce(start);
+    expect(scored).not.toBeNull();
+    expect(scored!.sim.world.launcher.xBase).toBe(target.xBase);
+    expect(scored!.sim.world.launcher.amplitude).toBe(target.amplitude);
+    expect(scored!.sim.world.launcher.frequency).toBe(target.frequency);
+    expect(scored!.sim.world.launcher.phase).toBe(target.phase);
+  });
+
+  it("tracks the longest combo, not the last one", () => {
+    let s: GameState | null = initial(7);
+    for (let i = 0; i < 3 && s; i++) s = scoreOnce(s);
+    expect(s).not.toBeNull();
+    expect(s!.combo).toBe(3);
+    expect(s!.maxCombo).toBe(3);
+    const after = throwAway(s!);
+    expect(after.combo).toBe(0);
+    expect(after.maxCombo).toBe(3);
+  });
+});
+
+describe("aiming", () => {
+  it("treats a tap below the threshold as no shot at all", () => {
+    const s = play(initial(1), { type: "aimStart" }, {
+      type: "aimMove",
+      pull: { x: 0, y: 5 },
+      pullPx: 5,
+    }, { type: "aimEnd" });
+    expect(s.phase).toBe("aiming");
+    expect(s.lives).toBe(STARTING_LIVES);
+  });
+
+  it("retires the attract loop the moment a shot is taken", () => {
+    const start = initial(1);
+    expect(start.phase).toBe("attract");
+    expect(start.hasLaunched).toBe(false);
+    const after = throwAway(start);
+    expect(after.hasLaunched).toBe(true);
+    // and it stays retired through a restart --- the lesson is learned once
+    let ended = after;
+    for (let i = 0; i < 3; i++) ended = throwAway(ended);
+    const restarted = play(ended, { type: "tick", dt: 1 }, { type: "aimStart" });
+    expect(restarted.hasLaunched).toBe(true);
+    expect(restarted.phase).not.toBe("attract");
+  });
+
+  it("keeps the bins drifting while you take your time", () => {
+    // a bin that froze while you aimed would make waiting for the right
+    // moment meaningless, and waiting is half the skill at higher tiers
+    const drifting = { ...initial(1) };
+    const moving: GameState = {
+      ...drifting,
+      sim: {
+        ...drifting.sim,
+        world: {
+          ...drifting.sim.world,
+          target: { ...drifting.sim.world.target, amplitude: 100, frequency: 0.5 },
+        },
+      },
+    };
+    const before = driftX(moving.sim.world.target, moving.sim.world.t);
+    const later = play(moving, { type: "aimStart" }, { type: "tick", dt: 0.5 });
+    expect(driftX(later.sim.world.target, later.sim.world.t)).not.toBeCloseTo(before, 3);
+  });
+});
