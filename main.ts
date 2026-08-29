@@ -2,7 +2,7 @@
 // file owns the things a pure reducer must not: the canvas, the clock, the
 // pointer, the DOM overlay and localStorage.
 import { playSound, unlockAudio } from "./src/audio.ts";
-import { BEST_KEY, FULL_POWER_PULL } from "./src/config.ts";
+import { BEST_KEY, FULL_POWER_PULL, SHAFT_WIDTH } from "./src/config.ts";
 import { initial, reduce } from "./src/game.ts";
 import type { GameEvent, GameState } from "./src/game.ts";
 import { attachKeyboard, attachPointer } from "./src/input.ts";
@@ -20,6 +20,7 @@ const ctx = need(canvas.getContext("2d"), "2d context");
 const livesEl = need(document.getElementById("lives"), "lives row");
 const scoreEl = need(document.getElementById("score"), "score");
 const endEl = need(document.getElementById("end"), "end screen");
+const hud = need(document.querySelector<HTMLElement>(".hud"), "overlay");
 
 const dots = [...livesEl.querySelectorAll<HTMLElement>(".dot")];
 const endLevel = need(document.getElementById("end-level"), "end level");
@@ -67,6 +68,13 @@ function resize(): void {
   canvas.height = Math.round(height * dpr);
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   bounds = view(width, height);
+
+  // Pin the overlay to the shaft's edges rather than the viewport's, so the
+  // score sits beside the playfield on a wide screen instead of a screen-width
+  // away from it.
+  const shaftRight = bounds.shaftLeft + SHAFT_WIDTH * bounds.scale;
+  hud.style.setProperty("--edge-left", `${Math.max(0, bounds.shaftLeft)}px`);
+  hud.style.setProperty("--edge-right", `${Math.max(0, width - shaftRight)}px`);
 }
 
 window.addEventListener("resize", resize);

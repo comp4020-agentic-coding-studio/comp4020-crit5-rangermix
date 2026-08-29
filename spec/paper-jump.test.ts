@@ -72,10 +72,10 @@ describe("difficulty tiers", () => {
     // A player good enough to reach level 200 should meet a hard game, not an
     // impossible one.
     const late = params(200);
-    expect(late.binWidth).toBe(84);
-    expect(late.gap).toBe(420);
-    expect(late.driftAmplitude).toBe(120);
-    expect(late.driftFrequency).toBeCloseTo(0.7, 10);
+    expect(late.binWidth).toBe(92);
+    expect(late.gap).toBe(400);
+    expect(late.driftAmplitude).toBe(105);
+    expect(late.driftFrequency).toBeCloseTo(0.64, 10);
     expect(late.obstacleCount).toBe(2);
     expect(late.obstaclesDrift).toBe(true);
     expect(late.maxOffset).toBeCloseTo(0.75, 10);
@@ -84,7 +84,10 @@ describe("difficulty tiers", () => {
   it("introduces obstacles from tier 2 and moves them from tier 4", () => {
     expect(params(10).obstacleCount).toBe(0);
     expect(params(11).obstacleCount).toBe(1);
-    expect(params(16).obstacleCount).toBe(2);
+    // a second obstacle waits two whole tiers: unlucky obstacle placement is
+    // what sets the FLOOR of the difficulty curve, not its average
+    expect(params(16).obstacleCount).toBe(1);
+    expect(params(21).obstacleCount).toBe(2);
     expect(params(16).obstaclesDrift).toBe(false);
     expect(params(21).obstaclesDrift).toBe(true);
   });
@@ -101,7 +104,7 @@ import {
   SHAFT_WIDTH,
   SUBSTEP,
 } from "../src/config.ts";
-import { didCapture } from "../src/capture.ts";
+import { didCapture, isInsideBin } from "../src/capture.ts";
 import { driftX } from "../src/geometry.ts";
 import type { Bin, Paper } from "../src/geometry.ts";
 import { advance, launchVelocity, simulate, substep } from "../src/physics.ts";
@@ -195,18 +198,81 @@ describe("capture", () => {
     expect(didCapture(falling(200, 502), falling(200, 498), drifting, 0.5)).toBe(false);
   });
 
-  it("never captures on a substep that also resolved a collision", () => {
+  it("never scores the CROSSING rule on a substep that resolved a collision", () => {
     // A shot that clipped the rim has clipped the rim, whatever its next
-    // position would have been. Swept across the whole launch space.
+    // position would have been. Swept across the whole launch space. (A shot
+    // that ended up inside the cavity is a different rule --- see below.)
     for (let angle = 20; angle <= 160; angle += 10) {
       for (let power = 0.3; power <= 1.001; power += 0.2) {
         let w = launched(angle, power);
         for (let i = 0; i < 240 * 6; i++) {
           const result = substep(w, SUBSTEP);
-          expect(result.captured && result.contacts.length > 0).toBe(false);
+          const byCrossing = result.captured && !isInsideBin(result.world.paper, w.target, result.world.t);
+          expect(byCrossing && result.contacts.length > 0).toBe(false);
           if (result.captured) break;
           w = result.world;
           if (w.paper.y < -400) break;
+        }
+      }
+    }
+  });
+
+  it("counts a paper sitting in the cavity as in", () => {
+    const target = bin({ xBase: 200, y: 500, width: 130 });
+    // just under the rim, dead centre
+    expect(isInsideBin(paper({ x: 200, y: 494 }), target, 0)).toBe(true);
+    // above the rim is not in
+    expect(isInsideBin(paper({ x: 200, y: 506 }), target, 0)).toBe(false);
+    // beside the bin, at cavity height, is not in
+    expect(isInsideBin(paper({ x: 100, y: 470 }), target, 0)).toBe(false);
+    // below the floor is not in
+    expect(isInsideBin(paper({ x: 200, y: 380 }), target, 0)).toBe(false);
+  });
+
+  it("never traps a shot inside the bin without scoring it", () => {
+    // The bug this rule exists for, reported from play: the paper goes in
+    // over the edge and then "drifts around as if it entered the starting
+    // bucket". Clipping the rim blocks the crossing for that substep, but the
+    // paper is now BELOW the rim plane, so the crossing can never fire again
+    // --- it rattles inside a bin that refuses to score it until the rest
+    // timeout calls it a miss.
+    //
+    // A DRIFTING bin is what makes it common: the rim sweeps sideways into
+    // the paper rather than waiting to be hit. Measured at 2.6% of every shot
+    // that got in, which is why these levels and phases are pinned rather
+    // than swept --- a static-bin sweep does not reproduce it at all.
+    for (const { level, launcher, target, obstacles } of run(7919, 8)) {
+      if (level !== 6 && level !== 8) continue;
+      expect(target.amplitude, "this regression needs a drifting bin").toBeGreaterThan(0);
+      for (const t0 of [0, 1.07, 1.33]) {
+        for (let angle = 20; angle <= 160; angle += 5) {
+          for (const power of [0.7, 0.85, 1]) {
+            const a = (angle * Math.PI) / 180;
+            const v = launchVelocity({
+              x: Math.cos(a) * FULL_POWER_PULL * power,
+              y: Math.sin(a) * FULL_POWER_PULL * power,
+            });
+            let w: World = {
+              t: t0,
+              paper: { x: driftX(launcher, t0), y: launcher.y, vx: v.x, vy: v.y, angle: 0, spin: 0 },
+              launcher,
+              target,
+              obstacles,
+              launcherArmed: false,
+            };
+            for (let i = 0; i < 240 * 8; i++) {
+              const result = substep(w, SUBSTEP);
+              if (isInsideBin(result.world.paper, target, result.world.t)) {
+                expect(
+                  result.captured,
+                  `trapped: level ${level}, t0 ${t0}, angle ${angle}, power ${power}`,
+                ).toBe(true);
+              }
+              if (result.captured) break;
+              w = result.world;
+              if (w.paper.y < launcher.y - 500) break;
+            }
+          }
         }
       }
     }
@@ -381,9 +447,10 @@ describe("level generation", () => {
     // Solvable is not the same as fair. An earlier draft of the difficulty
     // constants produced levels with a solution --- and an aiming window of a
     // fraction of a degree, which no player will ever find. The floor here is
-    // 4 degrees, measured as an unbroken band of scoring angles. A thumb on a
-    // phone is good to perhaps 3-5, and the tuned generator clears 9 at every
-    // tier --- so this floor catches a real regression, not just a zero.
+    // 5 degrees, measured as an unbroken band of scoring angles. A thumb on a
+    // phone is good to perhaps 3-5, and `pnpm probe` shows the tuned generator
+    // clearing 10 at every tier --- so this floor catches a real regression,
+    // not just a zero.
     //
     // One level per tier rather than all of them: the aiming window has to be
     // searched across launch power AND the moment in the drift cycle, and a
@@ -392,7 +459,7 @@ describe("level generation", () => {
     const sampled = [2, 7, 12, 17, 21];
     for (const { level, launcher, target, obstacles } of run(20260831, 21)) {
       if (!sampled.includes(level)) continue;
-      expect(hasAimTolerance(launcher, target, obstacles, 4), `level ${level}`).toBe(true);
+      expect(hasAimTolerance(launcher, target, obstacles, 5), `level ${level}`).toBe(true);
     }
   });
 });
@@ -684,5 +751,48 @@ describe("the page teaches itself", () => {
 
   it("hides the end screen until there is an end to show", () => {
     expect(doc.querySelector("#end")?.hasAttribute("hidden")).toBe(true);
+  });
+});
+
+// ------------------------------------------------------------ extra lives
+
+import { LIFE_EVERY, MAX_LIVES } from "../src/config.ts";
+import { livesAfterCapture } from "../src/game.ts";
+
+describe("earning lives back", () => {
+  it("awards one on every fifth level and none in between", () => {
+    // levels 6, 11, 16 ... which is exactly where the tier steps up
+    for (let level = 2; level <= 40; level++) {
+      const awarded = livesAfterCapture(1, level) > 1;
+      expect(awarded, `level ${level}`).toBe((level - 1) % LIFE_EVERY === 0);
+    }
+  });
+
+  it("never goes past the ceiling", () => {
+    expect(livesAfterCapture(MAX_LIVES, 6)).toBe(MAX_LIVES);
+    expect(livesAfterCapture(MAX_LIVES - 1, 6)).toBe(MAX_LIVES);
+    for (let level = 2; level <= 60; level++) {
+      expect(livesAfterCapture(MAX_LIVES, level)).toBeLessThanOrEqual(MAX_LIVES);
+    }
+  });
+
+  it("climbs 3 to 5 over the first fifteen levels and stops", () => {
+    let lives = STARTING_LIVES;
+    const at: Record<number, number> = {};
+    for (let level = 2; level <= 30; level++) {
+      lives = livesAfterCapture(lives, level);
+      at[level] = lives;
+    }
+    expect(at[5]).toBe(3);
+    expect(at[6]).toBe(4);
+    expect(at[11]).toBe(5);
+    expect(at[16]).toBe(5);
+    expect(at[30]).toBe(5);
+  });
+
+  it("has a dot on the overlay for every life it can award", () => {
+    // the HUD cannot show a life it has no dot for
+    const built = new JSDOM(readFileSync("dist/index.html", "utf8")).window.document;
+    expect(built.querySelectorAll("#lives .dot").length).toBe(MAX_LIVES);
   });
 });

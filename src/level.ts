@@ -13,7 +13,7 @@ import type { RngState } from "./rng.ts";
 import { clamp } from "./vec.ts";
 
 const OBSTACLE_MIN_WIDTH = 60;
-const OBSTACLE_MAX_WIDTH = 120;
+const OBSTACLE_MAX_WIDTH = 100;
 
 /** Clearance kept above the launcher and below the target so an obstacle can
  *  never be flush against either bin. */

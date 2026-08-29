@@ -70,6 +70,12 @@ export const OBSTACLE_HEIGHT = 14;
 // ---------------------------------------------------------------- the rules
 
 export const STARTING_LIVES = 3;
+/** Ceiling on banked lives. The overlay shows one dot each, so this is also
+ *  how many dots the HUD can ever draw. */
+export const MAX_LIVES = 5;
+/** Levels between awarded lives. Lands on the tier boundary on purpose: the
+ *  life arrives exactly when the game gets harder. */
+export const LIFE_EVERY = 5;
 /** Consecutive captures per extra point. */
 export const COMBO_STEP = 5;
 export const MAX_POINTS = 5;

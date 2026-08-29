@@ -22,7 +22,6 @@ const INK = "#2a2925";
 const WALL = "#f2efe8";
 const SHAFT = "#faf8f4";
 const PAPER = "#fffdf8";
-const ACCENT = "#d9553f";
 
 /** World-to-screen. The shaft is a fixed width in world units and the wall
  *  bleeds to the viewport edges, so there are no letterbox bars at either
@@ -133,8 +132,8 @@ export function render(ctx: CanvasRenderingContext2D, state: GameState, v: View)
     const k = state.popup.age / POPUP_TIME;
     const pop = state.reducedMotion ? 1 : k < 0.17 ? 0.9 + (k / 0.17) * 0.25 : 1.15;
     ctx.save();
-    ctx.globalAlpha = Math.max(0, 1 - k * k);
-    ctx.fillStyle = ACCENT;
+    ctx.globalAlpha = Math.max(0, 0.85 - k * k);
+    ctx.fillStyle = INK;
     ctx.font = `${u(26) * pop}px ui-monospace, SFMono-Regular, Menlo, monospace`;
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";

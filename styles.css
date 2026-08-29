@@ -6,7 +6,6 @@
   --shaft: #faf8f4;
   --ink: #2a2925;
   --paper: #fffdf8;
-  --accent: #d9553f;
 
   --pad: 18px;
 }
@@ -44,12 +43,25 @@ body {
    the pointer so a drag that starts over them still aims the shot --- the
    source link is the single exception. */
 
+/* The overlay hugs the SHAFT, not the viewport. On a 1920-wide desktop the
+   playfield is a ~470px column in the middle, and a score pinned to the far
+   corner is 700px of empty wall away from the thing it describes. main.ts
+   feeds these two in on every resize; they are 0 until it does. */
 .hud {
   position: fixed;
   inset: 0;
   pointer-events: none;
-  padding: calc(var(--pad) + env(safe-area-inset-top)) calc(var(--pad) + env(safe-area-inset-right))
-    calc(var(--pad) + env(safe-area-inset-bottom)) calc(var(--pad) + env(safe-area-inset-left));
+  --edge-left: 0px;
+  --edge-right: 0px;
+}
+
+.hud__lives,
+.hud__sig {
+  left: calc(var(--edge-left) + var(--pad) + env(safe-area-inset-left));
+}
+
+.hud__score {
+  right: calc(var(--edge-right) + var(--pad) + env(safe-area-inset-right));
 }
 
 .hud > * {
@@ -60,7 +72,6 @@ body {
 
 .hud__lives {
   top: calc(var(--pad) + env(safe-area-inset-top));
-  left: calc(var(--pad) + env(safe-area-inset-left));
   display: flex;
   gap: 8px;
 }
@@ -102,7 +113,6 @@ body {
 
 .hud__score {
   top: calc(var(--pad) + env(safe-area-inset-top));
-  right: calc(var(--pad) + env(safe-area-inset-right));
   font-size: 15px;
   line-height: 1;
   opacity: 0.75;
@@ -123,7 +133,6 @@ body {
 
 .hud__sig {
   bottom: calc(var(--pad) + env(safe-area-inset-bottom));
-  left: calc(var(--pad) + env(safe-area-inset-left));
   line-height: 1.35;
 }
 

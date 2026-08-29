@@ -31,8 +31,11 @@
     <canvas id="stage" tabindex="0"></canvas>
 
     <div class="hud">
+      <!-- Five, because levels 6/11/16... hand a life back up to a ceiling of
+           five. The last two start spent so nothing flashes on first paint. -->
       <div class="hud__lives" id="lives" aria-hidden="true">
-        <span class="dot"></span><span class="dot"></span><span class="dot"></span>
+        <span class="dot"></span><span class="dot"></span><span class="dot"></span
+        ><span class="dot is-lost"></span><span class="dot is-lost"></span>
       </div>
 
       <div class="hud__score" id="score">0</div>

@@ -168,7 +168,7 @@ Two vertical planes at `x = 0` and `x = SHAFT_WIDTH`, infinite in y.
 
 ### Obstacle
 
-Axis-aligned bars (tier 2+), width 60–120 u, height 14 u, restitution 0.60.
+Axis-aligned bars (tier 2+), width 60–100 u, height 14 u, restitution 0.60.
 From tier 4 they drift on the same sine form as bins, but at only 0.3x their
 amplitude: a drifting launcher shooting at a drifting bin is already two moving
 frames to hold in your head, and a third collapses the aiming window.
@@ -286,11 +286,11 @@ pure, and testable:
 
 | Parameter | Formula | Range |
 | --- | --- | --- |
-| bin width | `max(84, 130 - 9 * T)` | 130 → 84 u |
-| vertical gap | `min(420, 260 + 26 * T)` | 260 → 420 u |
-| drift amplitude | `T === 0 ? 0 : min(120, 20 + 20 * T)` | 0 → 120 u |
-| drift frequency | `T === 0 ? 0 : min(0.7, 0.30 + 0.08 * T)` | 0 → 0.7 Hz |
-| obstacle count | `T < 2 ? 0 : min(2, T - 1)` | 0 → 2 |
+| bin width | `max(92, 138 - 8 * T)` | 138 → 92 u |
+| vertical gap | `min(400, 250 + 22 * T)` | 250 → 400 u |
+| drift amplitude | `T === 0 ? 0 : min(105, 18 + 17 * T)` | 0 → 105 u |
+| drift frequency | `T === 0 ? 0 : min(0.64, 0.28 + 0.07 * T)` | 0 → 0.64 Hz |
+| obstacle count | `T < 2 ? 0 : T < 4 ? 1 : 2` | 0 → 2 |
 | obstacles drift | `T >= 4`, at 0.3x the bins' amplitude | — |
 | horizontal offset | `min(0.15, 0.10 + 0.01 * T)` .. `min(0.75, 0.40 + 0.07 * T)` | of `SHAFT_WIDTH` |
 
@@ -300,9 +300,18 @@ and unplayable in fact, one of them with nine working shots in 51,300 sampled
 launches. The fix came from building an instrument, not from playing: sweep the
 launch space and measure the **aim tolerance**, the widest unbroken band of
 launch angles that still scores. A thumb on a phone is good to perhaps 3–5°.
-The tuned table holds 14° at tier 0 and eases to 6–9° by tier 5, and
-`spec/paper-jump.test.ts` asserts a floor of 4° so a later tweak cannot quietly
-reintroduce the problem.
+`scripts/difficulty-probe.ts` is that instrument, kept and runnable as
+`pnpm probe`; re-run it after touching anything in `src/difficulty.ts` or
+`src/level.ts`.
+
+The table was then eased a second time, by request, on the same measurement.
+Across ten levels and three seeds the worst-case band went from a mean of 13.0°
+(floor 7°) to a mean of 16.9° (floor 12°) — about **23% easier**. The lever that
+lifted the *floor* was not any of the global parameters but the obstacle count:
+a second obstacle now waits two whole tiers, because unlucky obstacle placement
+is what makes an individual level unfair, while gap and bin width move the
+average. `spec/paper-jump.test.ts` asserts a floor of 5° so a later tweak cannot
+quietly undo it.
 
 What that feels like:
 
@@ -353,8 +362,13 @@ falls. `maxCombo` tracks the highest combo reached in the run.
 
 ### Lives
 
-Start at **3**. A miss costs one life and resets the combo. A miss with **0
-lives remaining ends the game** — four misses in total.
+Start at **3**, ceiling of **5**. A miss costs one life and resets the combo. A
+miss with **0 lives remaining ends the game** — so three lives is four attempts.
+
+Reaching levels 6, 11, 16 … hands one life back, up to the ceiling. That lands
+on the tier boundary deliberately: the life arrives in the same breath as the
+difficulty step it has to pay for, so surviving deep buys room rather than only
+a steeper wall.
 
 The launcher and the target are both unchanged by a miss: you throw again at the
 same bin, from the same place. Level does not rise.
@@ -374,8 +388,19 @@ With +y up, a capture occurs on a substep when **all** hold:
 2. `binInnerLeft <= cur.x <= binInnerRight`
 3. `v.y < 0`
 
-and no rim/wall collision was resolved earlier in the same substep. On capture
-the paper freezes, the `+N` popup fires, and the camera pan begins.
+and no bin/wall collision was resolved earlier in the same substep.
+
+**Containment is a second, independent way in**, and it exists because the rule
+above alone can trap a shot forever: clip the rim on the way in and the crossing
+is blocked for that substep, but the paper is now *below* the rim plane, so
+`prev.y > rimY` can never be true again. It rattles inside a bin that refuses to
+score it until the rest rule calls it a miss — reported from play as the paper
+"drifting around as if it entered the starting bucket", and measured at 2.6% of
+every shot that got in. So a paper whose centre is inside the cavity — below the
+rim, above the floor, within the clear span — is captured on **any** substep,
+collision or not. If it clipped the rim and ended up inside anyway, it went in.
+
+On capture the paper freezes, the `+N` popup fires, and the camera pan begins.
 
 ---
 
@@ -404,9 +429,16 @@ All DOM, not canvas, so they're real text for assistive tech. All non-blocking
 
 | Corner | Element | Detail |
 | --- | --- | --- |
-| top left | lives | up to 3 filled charcoal dots, 8 px, 8 px apart, alpha 0.75. Losing one: the rightmost dot scales to 0 and fades over 260 ms while the row shakes 3 px. At 0 lives the corner is empty — the wordless "next one ends it". |
+| top left | lives | up to **5** filled charcoal dots, 8 px, 8 px apart, alpha 0.75. Losing one: the rightmost dot scales to 0 and fades over 260 ms while the row shakes 3 px. Earning one scales it back in. At 0 lives the corner is empty — the wordless "next one ends it". |
 | top right | score | integer, tabular figures, alpha 0.75. A gain animates the digits up by 2 px and back over 180 ms. |
 | bottom left | title | `<h1>paper jump</h1>`, lowercase, 13 px, alpha 0.45 |
+
+**The overlay hugs the shaft, not the viewport.** At 1920×1080 the playfield is
+a 472 px column in the middle of the screen, and a score pinned to the far
+corner sits 700 px of empty wall away from the thing it describes. `main.ts`
+feeds the shaft's screen edges to the overlay as CSS custom properties on every
+resize, and all three elements inset 18 px from those. At 390×844 the shaft is
+nearly the whole width, so it degrades to what it always was.
 
 Safe areas respected with `env(safe-area-inset-*)`; the phone notch never sits
 over the lives or the score.
@@ -414,7 +446,8 @@ over the lives or the score.
 ### 7.3 The score popup
 
 Canvas, world-anchored so it rides the camera pan. `+N` rises 60 u from the bin
-rim over 820 ms, alpha 1 → 0, scale 0.9 → 1.15 in the first 140 ms.
+rim over 820 ms, alpha 0.85 → 0, scale 0.9 → 1.15 in the first 140 ms. Drawn in
+`--ink` like every other piece of text on screen.
 
 ### 7.4 The end screen
 
@@ -473,10 +506,12 @@ palette (not theme-reactive — it's a game, not a document).
 | `--shaft` | `#faf8f4` | inside the shaft |
 | `--ink` | `#2a2925` | bins, obstacles, paper outline, all text |
 | `--paper` | `#fffdf8` | the ball's fill |
-| `--accent` | `#d9553f` | the `+N` popup only |
 
-Line weight is 2 u everywhere. The accent appears exactly once — on the score
-popup — so the eye is pulled to the reward and nothing else.
+Line weight is 2 u everywhere, and the palette is **entirely achromatic**. An
+earlier draft put the `+N` popup in a warm accent to pull the eye to the reward;
+it read as a warning in a game that has nothing to warn about, and the one spot
+of colour on an otherwise ink-and-paper screen was louder than the event it
+marked. The popup earns attention by moving and fading instead.
 
 - **mesh bin**: 45° cross-hatch at 9 u spacing, clipped to the basket
   silhouette, `--ink` at alpha 0.5, with a solid 2 u rim

@@ -33,11 +33,15 @@ export function tier(level: number): number {
 export function params(level: number): Params {
   const t = tier(level);
   return {
-    binWidth: Math.max(84, 130 - 9 * t),
-    gap: Math.min(420, 260 + 26 * t),
-    driftAmplitude: t === 0 ? 0 : Math.min(120, 20 + 20 * t),
-    driftFrequency: t === 0 ? 0 : Math.min(0.7, 0.3 + 0.08 * t),
-    obstacleCount: t < 2 ? 0 : Math.min(2, t - 1),
+    binWidth: Math.max(92, 138 - 8 * t),
+    gap: Math.min(400, 250 + 22 * t),
+    driftAmplitude: t === 0 ? 0 : Math.min(105, 18 + 17 * t),
+    driftFrequency: t === 0 ? 0 : Math.min(0.64, 0.28 + 0.07 * t),
+    // One obstacle for two whole tiers before a second arrives. The floor of
+    // the difficulty curve is set by unlucky obstacle placement, not by the
+    // global parameters, so this is the lever that lifts the worst levels
+    // rather than the average one.
+    obstacleCount: t < 2 ? 0 : t < 4 ? 1 : 2,
     obstaclesDrift: t >= 4,
     minOffset: Math.min(0.15, 0.1 + 0.01 * t),
     maxOffset: Math.min(0.75, 0.4 + 0.07 * t),

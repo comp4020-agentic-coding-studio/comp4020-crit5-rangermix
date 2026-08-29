@@ -9,7 +9,9 @@ import {
   CAMERA_PAN,
   CAMERA_PAN_REDUCED,
   FULL_POWER_PULL,
+  LIFE_EVERY,
   MAX_DRAW_BACK,
+  MAX_LIVES,
   MAX_FLIGHT_TIME,
   MAX_LAUNCH_SPEED,
   MIN_PULL_PX,
@@ -42,7 +44,7 @@ export type GameEvent =
   | { readonly type: "aimCancel" }
   | { readonly type: "restart" };
 
-export type SoundKind = "wall" | "bin" | "obstacle" | "score" | "life" | "over";
+export type SoundKind = "wall" | "bin" | "obstacle" | "score" | "extra" | "life" | "over";
 
 /** A sound the frame earned, with how hard it was earned. Carrying the
  *  intensity is what stops a graze off a wall thudding like a slam into it. */
@@ -92,6 +94,18 @@ export type GameState = {
 export type Reduced = { readonly state: GameState; readonly sounds: readonly Sound[] };
 
 const cameraFor = (launcher: Bin): number => launcher.y - CAMERA_ANCHOR * NOMINAL_HEIGHT;
+
+/**
+ * Reaching levels 6, 11, 16 ... hands a life back, up to a ceiling of five.
+ *
+ * The award lands on the tier boundary on purpose: the life arrives in the
+ * same breath as the difficulty step it has to pay for. Surviving deep should
+ * buy room, not only a steeper wall.
+ */
+export function livesAfterCapture(lives: number, newLevel: number): number {
+  const earned = (newLevel - 1) % LIFE_EVERY === 0 && lives < MAX_LIVES;
+  return earned ? lives + 1 : lives;
+}
 
 // --------------------------------------------------------- the attract loop
 //
@@ -224,11 +238,15 @@ function onCapture(state: GameState): Reduced {
   const launcher = world.target;
   const next = nextLevel(launcher, level, state.rng);
 
+  const lives = livesAfterCapture(state.lives, level);
+  const earnedLife = lives > state.lives;
+
   return {
     state: {
       ...state,
       phase: "panning",
       level,
+      lives,
       score: state.score + gained,
       combo,
       maxCombo: Math.max(state.maxCombo, combo),
@@ -245,7 +263,9 @@ function onCapture(state: GameState): Reduced {
       panFrom: state.cameraY,
       panProgress: 0,
     },
-    sounds: [{ kind: "score", intensity: Math.min(1, 0.55 + gained * 0.12) }],
+    sounds: earnedLife
+      ? [{ kind: "score" as const, intensity: 1 }, { kind: "extra" as const, intensity: 1 }]
+      : [{ kind: "score" as const, intensity: Math.min(1, 0.55 + gained * 0.12) }],
   };
 }
 

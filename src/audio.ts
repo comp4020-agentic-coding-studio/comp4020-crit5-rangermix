@@ -19,6 +19,7 @@ const VOICES: Record<SoundKind, Voice> = {
   bin: { from: 880, to: 620, seconds: 0.045, type: "triangle", gain: 0.09, cooldown: 0.04 },
   obstacle: { from: 270, to: 170, seconds: 0.06, type: "square", gain: 0.05, cooldown: 0.05 },
   score: { from: 520, to: 1050, seconds: 0.19, type: "sine", gain: 0.16, cooldown: 0.1 },
+  extra: { from: 700, to: 1400, seconds: 0.34, type: "triangle", gain: 0.15, cooldown: 0.3 },
   life: { from: 420, to: 150, seconds: 0.26, type: "sine", gain: 0.14, cooldown: 0.2 },
   over: { from: 300, to: 70, seconds: 0.7, type: "sine", gain: 0.18, cooldown: 0.5 },
 };

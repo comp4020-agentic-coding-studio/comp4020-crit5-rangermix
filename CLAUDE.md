@@ -52,6 +52,15 @@ plausible proxy that no test can contradict is the expensive kind of wrong.
 Throwaway probes are worth writing and worth deleting. If a probe finds
 something, the floor it establishes becomes a test.
 
+### A regression test that passes before the fix has no teeth
+
+Whenever I write a test for a bug I just fixed, revert the fix and watch it
+fail, then restore it. In C5 my first trap regression passed either way — it
+swept static bins, and the bug only appears when a *drifting* bin sweeps
+sideways into the paper. I would have shipped a test that asserted nothing and
+believed the bug was pinned. Reproduce the reported conditions first, measure
+how often it actually happens, and only then write the assertion.
+
 ### Verify visual work at native resolution
 
 A screenshot of a 1920px viewport is heavily downscaled before I see it, and

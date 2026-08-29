@@ -19,7 +19,7 @@ import {
   WALL_FRICTION,
   WALL_RESTITUTION,
 } from "./config.ts";
-import { didCapture } from "./capture.ts";
+import { didCapture, isInsideBin } from "./capture.ts";
 import { binBars, driftVx, obstacleBox } from "./geometry.ts";
 import type { Aabb, Bin, Obstacle, Paper } from "./geometry.ts";
 import { clamp, len } from "./vec.ts";
@@ -185,9 +185,12 @@ export function substep(world: World, dt: number): StepResult {
     spin: bounced ? -prev.spin * SPIN_RETENTION : prev.spin,
   };
 
-  // Capture is tested LAST and only on a clean substep: a shot that clipped
-  // the rim has clipped the rim, whatever its next position would have been.
-  const captured = !bounced && didCapture(prev, paper, world.target, t);
+  // Capture is tested LAST. The crossing rule only counts on a clean substep
+  // --- a shot that clipped the rim has clipped the rim --- but a paper that
+  // has ended up in the cavity is in, however it got there.
+  const captured =
+    (!bounced && didCapture(prev, paper, world.target, t)) ||
+    isInsideBin(paper, world.target, t);
 
   const launcherArmed = world.launcherArmed || paper.y > world.launcher.y + PAPER_RADIUS;
 
