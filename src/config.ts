@@ -49,7 +49,7 @@ export const FULL_POWER_PULL = 200;
 /** Below this, in SCREEN px, a pointerup was a tap and not a shot. */
 export const MIN_PULL_PX = 12;
 /** How far the paper visibly draws back out of the bin at full power. */
-export const MAX_DRAW_BACK = 18;
+export const MAX_DRAW_BACK = 26;
 
 /** The preview covers this much simulated flight and no more, at every level.
  *  It is the game's difficulty lever: aiming is given, predicting the bounce

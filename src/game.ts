@@ -89,6 +89,51 @@ export type Reduced = { readonly state: GameState; readonly sounds: readonly Sou
 
 const cameraFor = (launcher: Bin): number => launcher.y - CAMERA_ANCHOR * NOMINAL_HEIGHT;
 
+// --------------------------------------------------------- the attract loop
+//
+// The brief forbids instructions anywhere, on screen or off, so the opening
+// screen has to make the first move obvious without words. It demonstrates:
+// the paper draws itself back out of the bin, the preview dots appear at the
+// top of the pull, and it springs home. On a loop, until the player does it
+// themselves --- after which it never runs again.
+
+const ATTRACT_ANGLE = (78 * Math.PI) / 180;
+/** How far the demonstration leans toward the target's side. Enough that the
+ *  shot always looks plausible, not enough to hand over the answer. */
+const ATTRACT_LEAN = (16 * Math.PI) / 180;
+const ATTRACT_POWER = 0.85;
+const ATTRACT_DRAW = 0.9;
+const ATTRACT_SNAP = 1.05;
+
+const easeOutCubic = (x: number): number => 1 - (1 - x) ** 3;
+
+/** Which way the demonstration leans: toward whichever side the first bin is
+ *  on, so the shot it mimes is never pointing obviously nowhere. */
+export function attractLean(world: World): number {
+  return Math.sign(world.target.xBase - world.launcher.xBase) || 1;
+}
+
+/** The pull the demonstration is currently making. */
+export function attractPull(t: number, lean = 1): Vec {
+  let power: number;
+  if (t < ATTRACT_DRAW) power = easeOutCubic(t / ATTRACT_DRAW) * ATTRACT_POWER;
+  else if (t < ATTRACT_SNAP) power = (1 - (t - ATTRACT_DRAW) / (ATTRACT_SNAP - ATTRACT_DRAW)) * ATTRACT_POWER;
+  else power = 0;
+  const angle = ATTRACT_ANGLE - lean * ATTRACT_LEAN;
+  return {
+    x: Math.cos(angle) * FULL_POWER_PULL * power,
+    y: Math.sin(angle) * FULL_POWER_PULL * power,
+  };
+}
+
+/** How strongly the demonstration's preview dots are showing, 0 to 1. */
+export function attractDots(t: number): number {
+  if (t < 0.6) return 0;
+  if (t < ATTRACT_DRAW) return (t - 0.6) / (ATTRACT_DRAW - 0.6);
+  if (t < ATTRACT_SNAP) return 1 - (t - ATTRACT_DRAW) / (ATTRACT_SNAP - ATTRACT_DRAW);
+  return 0;
+}
+
 /** Where the paper sits when it isn't flying: in the launcher, drawn back by
  *  however hard the player is pulling. */
 function atRest(world: World, pull: Vec | null): World {
@@ -225,16 +270,21 @@ function onTick(state: GameState, dt: number): Reduced {
   const popup = agePopup(state.popup, dt);
 
   switch (state.phase) {
-    case "attract":
+    case "attract": {
+      const attractT = (state.attractT + dt) % ATTRACT_CYCLE;
       return {
         state: {
           ...state,
-          attractT: (state.attractT + dt) % ATTRACT_CYCLE,
-          sim: { ...state.sim, world: idleWorld(state.sim.world, dt, null) },
+          attractT,
+          sim: {
+            ...state.sim,
+            world: idleWorld(state.sim.world, dt, attractPull(attractT, attractLean(state.sim.world))),
+          },
           popup,
         },
         sounds: [],
       };
+    }
 
     case "aiming":
       return {
