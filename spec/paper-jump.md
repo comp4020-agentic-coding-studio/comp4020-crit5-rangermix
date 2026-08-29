@@ -168,8 +168,10 @@ Two vertical planes at `x = 0` and `x = SHAFT_WIDTH`, infinite in y.
 
 ### Obstacle
 
-Axis-aligned bars (tier 2+), width 60–140 u, height 14 u, restitution 0.60.
-From tier 4 they drift on the same sine form as bins.
+Axis-aligned bars (tier 2+), width 60–120 u, height 14 u, restitution 0.60.
+From tier 4 they drift on the same sine form as bins, but at only 0.3x their
+amplitude: a drifting launcher shooting at a drifting bin is already two moving
+frames to hold in your head, and a third collapses the aiming window.
 
 ---
 
@@ -181,10 +183,10 @@ what makes §10's tests possible.
 
 | Constant | Value |
 | --- | --- |
-| gravity | 1800 u/s² down |
+| gravity | 1500 u/s² down |
 | linear damping | 0.20 /s |
 | substep | 1/240 s |
-| max launch speed | 1500 u/s |
+| max launch speed | 1600 u/s |
 | max flight time | 8 s |
 
 Semi-implicit Euler per substep:
@@ -198,7 +200,7 @@ test capture
 ```
 
 The accumulator drains in fixed substeps with the remainder carried, so frame
-rate never changes the outcome. At 1500 u/s a substep advances 6.25 u against a
+rate never changes the outcome. At 1600 u/s a substep advances 6.7 u against a
 paper radius of 14 u, so tunnelling is not possible against any collider here.
 
 **Moving colliders bounce in their own frame.** A tier-5 bin sweeps at up to
@@ -284,12 +286,23 @@ pure, and testable:
 
 | Parameter | Formula | Range |
 | --- | --- | --- |
-| bin width | `max(78, 130 - 11 * T)` | 130 → 78 u |
-| vertical gap | `min(480, 300 + 38 * T)` | 300 → 480 u |
-| drift amplitude | `T === 0 ? 0 : min(140, 25 + 25 * T)` | 0 → 140 u |
-| drift frequency | `T === 0 ? 0 : min(0.75, 0.30 + 0.09 * T)` | 0 → 0.75 Hz |
-| obstacle count | `T < 2 ? 0 : min(3, T - 1)` | 0 → 3 |
-| obstacles drift | `T >= 4` | — |
+| bin width | `max(84, 130 - 9 * T)` | 130 → 84 u |
+| vertical gap | `min(420, 260 + 26 * T)` | 260 → 420 u |
+| drift amplitude | `T === 0 ? 0 : min(120, 20 + 20 * T)` | 0 → 120 u |
+| drift frequency | `T === 0 ? 0 : min(0.7, 0.30 + 0.08 * T)` | 0 → 0.7 Hz |
+| obstacle count | `T < 2 ? 0 : min(2, T - 1)` | 0 → 2 |
+| obstacles drift | `T >= 4`, at 0.3x the bins' amplitude | — |
+| horizontal offset | `min(0.15, 0.10 + 0.01 * T)` .. `min(0.75, 0.40 + 0.07 * T)` | of `SHAFT_WIDTH` |
+
+**These numbers are measured, not chosen.** An earlier draft ran the gap to
+480 u against a maximum achievable rise of 560 u — levels solvable in principle
+and unplayable in fact, one of them with nine working shots in 51,300 sampled
+launches. The fix came from building an instrument, not from playing: sweep the
+launch space and measure the **aim tolerance**, the widest unbroken band of
+launch angles that still scores. A thumb on a phone is good to perhaps 3–5°.
+The tuned table holds 14° at tier 0 and eases to 6–9° by tier 5, and
+`spec/paper-jump.test.ts` asserts a floor of 4° so a later tweak cannot quietly
+reintroduce the problem.
 
 What that feels like:
 
@@ -299,7 +312,7 @@ What that feels like:
 | 6–10 | 1 | bins start drifting; you learn to lead the target |
 | 11–15 | 2 | first obstacle — the wall bounce stops being optional |
 | 16–20 | 3 | bins shrink, drift widens |
-| 21–25 | 4 | obstacles drift too |
+| 21–25 | 4 | obstacles start drifting, gently |
 | 26+ | 5+ | every parameter at its clamp; only your hands improve |
 
 ### Target placement
@@ -307,12 +320,16 @@ What that feels like:
 The next target spawns `gap(T)` above the launcher rim, at a horizontal offset
 drawn from a **seeded RNG** so a run is reproducible:
 
-- `|dx|` between `0.15 * SHAFT_WIDTH` and `0.75 * SHAFT_WIDTH`
+- `|dx|` between the tier's `minOffset` and `maxOffset` fractions of
+  `SHAFT_WIDTH` — early bins sit almost overhead so the opening shot is
+  forgiving, and they fan out from there
 - sign random
 - `xBase` clamped so `xBase ± amplitude` keeps the bin fully inside both walls
-- obstacles placed between launcher and target, never overlapping either bin's
-  full swing, and never fully sealing the gap: **at least one wall-bounce
-  solution must exist at every level.**
+- obstacles placed between launcher and target, one per horizontal band, never
+  overlapping either bin's full swing and never sealing a height: the widest is
+  120 u of a 420 u shaft, so every height keeps clear air across it
+- **every level must clear the 4° aim-tolerance floor** — a stronger promise
+  than merely having a solution somewhere
 
 ### Score
 

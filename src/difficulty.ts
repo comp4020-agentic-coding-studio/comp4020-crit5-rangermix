@@ -18,6 +18,11 @@ export type Params = {
   readonly driftFrequency: number;
   readonly obstacleCount: number;
   readonly obstaclesDrift: boolean;
+  /** How far sideways the next bin may sit, as a fraction of the shaft. The
+   *  quietest difficulty lever there is: the first levels sit almost overhead
+   *  so the opening shot is forgiving, and they fan out from there. */
+  readonly minOffset: number;
+  readonly maxOffset: number;
 };
 
 /** Levels 1-5 are tier 0, 6-10 tier 1, and so on. */
@@ -28,11 +33,13 @@ export function tier(level: number): number {
 export function params(level: number): Params {
   const t = tier(level);
   return {
-    binWidth: Math.max(78, 130 - 11 * t),
-    gap: Math.min(480, 300 + 38 * t),
-    driftAmplitude: t === 0 ? 0 : Math.min(140, 25 + 25 * t),
-    driftFrequency: t === 0 ? 0 : Math.min(0.75, 0.3 + 0.09 * t),
-    obstacleCount: t < 2 ? 0 : Math.min(3, t - 1),
+    binWidth: Math.max(84, 130 - 9 * t),
+    gap: Math.min(420, 260 + 26 * t),
+    driftAmplitude: t === 0 ? 0 : Math.min(120, 20 + 20 * t),
+    driftFrequency: t === 0 ? 0 : Math.min(0.7, 0.3 + 0.08 * t),
+    obstacleCount: t < 2 ? 0 : Math.min(2, t - 1),
     obstaclesDrift: t >= 4,
+    minOffset: Math.min(0.15, 0.1 + 0.01 * t),
+    maxOffset: Math.min(0.75, 0.4 + 0.07 * t),
   };
 }

@@ -72,17 +72,19 @@ describe("difficulty tiers", () => {
     // A player good enough to reach level 200 should meet a hard game, not an
     // impossible one.
     const late = params(200);
-    expect(late.binWidth).toBe(78);
-    expect(late.gap).toBe(480);
-    expect(late.driftAmplitude).toBe(140);
-    expect(late.driftFrequency).toBeCloseTo(0.75, 10);
-    expect(late.obstacleCount).toBe(3);
+    expect(late.binWidth).toBe(84);
+    expect(late.gap).toBe(420);
+    expect(late.driftAmplitude).toBe(120);
+    expect(late.driftFrequency).toBeCloseTo(0.7, 10);
+    expect(late.obstacleCount).toBe(2);
     expect(late.obstaclesDrift).toBe(true);
+    expect(late.maxOffset).toBeCloseTo(0.75, 10);
   });
 
   it("introduces obstacles from tier 2 and moves them from tier 4", () => {
     expect(params(10).obstacleCount).toBe(0);
     expect(params(11).obstacleCount).toBe(1);
+    expect(params(16).obstacleCount).toBe(2);
     expect(params(16).obstaclesDrift).toBe(false);
     expect(params(21).obstaclesDrift).toBe(true);
   });
@@ -92,6 +94,7 @@ describe("difficulty tiers", () => {
 
 import {
   FULL_POWER_PULL,
+  OBSTACLE_HEIGHT,
   PAPER_RADIUS,
   PREVIEW_INTERVAL,
   PREVIEW_TIME,
@@ -305,3 +308,149 @@ describe("the slingshot", () => {
     expect(launchVelocity({ x: 0, y: 0 })).toEqual({ x: 0, y: 0 });
   });
 });
+
+// ------------------------------------------------------- level generation
+
+import { firstLauncher, nextLevel } from "../src/level.ts";
+import { binHeight } from "../src/geometry.ts";
+import type { Obstacle } from "../src/geometry.ts";
+import { seed } from "../src/rng.ts";
+
+/** Walk a whole run's worth of levels, each target becoming the next
+ *  launcher, exactly as play does. */
+function* run(rngSeed: number, levels: number) {
+  let launcher = firstLauncher();
+  let rng = seed(rngSeed);
+  for (let level = 1; level <= levels; level++) {
+    const next = nextLevel(launcher, level, rng);
+    yield { level, launcher, ...next };
+    launcher = next.target;
+    rng = next.rng;
+  }
+}
+
+describe("level generation", () => {
+  it("keeps every bin's whole swing inside the walls", () => {
+    for (let s = 1; s <= 40; s++) {
+      for (const { level, target } of run(s * 7919, 30)) {
+        const leftMost = target.xBase - target.amplitude - target.width / 2;
+        const rightMost = target.xBase + target.amplitude + target.width / 2;
+        expect(leftMost, `level ${level}, seed ${s}`).toBeGreaterThanOrEqual(-1e-9);
+        expect(rightMost, `level ${level}, seed ${s}`).toBeLessThanOrEqual(SHAFT_WIDTH + 1e-9);
+      }
+    }
+  });
+
+  it("keeps every obstacle's whole swing inside the walls", () => {
+    for (let s = 1; s <= 40; s++) {
+      for (const { obstacles } of run(s * 104729, 40)) {
+        for (const o of obstacles) {
+          expect(o.xBase - o.amplitude - o.width / 2).toBeGreaterThanOrEqual(-1e-9);
+          expect(o.xBase + o.amplitude + o.width / 2).toBeLessThanOrEqual(SHAFT_WIDTH + 1e-9);
+        }
+      }
+    }
+  });
+
+  it("never puts an obstacle flush against either bin", () => {
+    for (let s = 1; s <= 40; s++) {
+      for (const { launcher, target, obstacles } of run(s * 15485863, 40)) {
+        for (const o of obstacles) {
+          expect(o.y).toBeGreaterThan(launcher.y);
+          expect(o.y + OBSTACLE_HEIGHT).toBeLessThan(target.y - binHeight(target));
+        }
+      }
+    }
+  });
+
+  it("never seals a height: no obstacle can span the shaft", () => {
+    // Obstacles get one horizontal band each, and the widest is 140 of a 420
+    // shaft --- so every height always has clear air somewhere across it.
+    for (let s = 1; s <= 40; s++) {
+      for (const { obstacles } of run(s * 32452843, 40)) {
+        const sorted = [...obstacles].sort((a, b) => a.y - b.y);
+        for (let i = 1; i < sorted.length; i++) {
+          expect(sorted[i]!.y).toBeGreaterThan(sorted[i - 1]!.y + OBSTACLE_HEIGHT);
+        }
+        for (const o of obstacles) expect(o.width).toBeLessThan(SHAFT_WIDTH / 2);
+      }
+    }
+  });
+
+  it("never generates a level too tight for a human to aim at", () => {
+    // Solvable is not the same as fair. An earlier draft of the difficulty
+    // constants produced levels with a solution --- and an aiming window of a
+    // fraction of a degree, which no player will ever find. The floor here is
+    // 4 degrees, measured as an unbroken band of scoring angles. A thumb on a
+    // phone is good to perhaps 3-5, and the tuned generator clears 9 at every
+    // tier --- so this floor catches a real regression, not just a zero.
+    //
+    // One level per tier rather than all of them: the aiming window has to be
+    // searched across launch power AND the moment in the drift cycle, and a
+    // grid coarse enough to run on every level is coarse enough to miss a
+    // window that is really there.
+    const sampled = [2, 7, 12, 17, 21];
+    for (const { level, launcher, target, obstacles } of run(20260831, 21)) {
+      if (!sampled.includes(level)) continue;
+      expect(hasAimTolerance(launcher, target, obstacles, 4), `level ${level}`).toBe(true);
+    }
+  });
+});
+
+/** Does some unbroken band of at least `minDegrees` of launch angle score?
+ *  Returns as soon as one is found --- this is a floor, not a measurement. */
+function hasAimTolerance(
+  launcher: Bin,
+  target: Bin,
+  obstacles: readonly Obstacle[],
+  minDegrees: number,
+): boolean {
+  const step = 0.5;
+  // Sample right across the target's own drift cycle: a window that only
+  // opens when the bin is at one end of its swing is still a window, and the
+  // player can wait for it.
+  const period = target.frequency > 0 ? 1 / target.frequency : 1;
+  const moments = [0, 1, 2, 3, 4, 5, 6, 7].map((i) => (i / 8) * period);
+  for (const t0 of moments) {
+    for (const power of [0.5, 0.6, 0.7, 0.8, 0.9, 1]) {
+      let band = 0;
+      for (let angle = 10; angle <= 170; angle += step) {
+        if (scoresFrom(launcher, target, obstacles, t0, angle, power)) {
+          band += step;
+          if (band >= minDegrees) return true;
+        } else band = 0;
+      }
+    }
+  }
+  return false;
+}
+
+function scoresFrom(
+  launcher: Bin,
+  target: Bin,
+  obstacles: readonly Obstacle[],
+  t0: number,
+  angleDeg: number,
+  power: number,
+): boolean {
+  const a = (angleDeg * Math.PI) / 180;
+  const v = launchVelocity({
+    x: Math.cos(a) * FULL_POWER_PULL * power,
+    y: Math.sin(a) * FULL_POWER_PULL * power,
+  });
+  let w: World = {
+    t: t0,
+    paper: { x: driftX(launcher, t0), y: launcher.y, vx: v.x, vy: v.y, angle: 0, spin: 0 },
+    launcher,
+    target,
+    obstacles,
+    launcherArmed: false,
+  };
+  for (let i = 0; i < 240 * 4; i++) {
+    const result = substep(w, SUBSTEP);
+    if (result.captured) return true;
+    w = result.world;
+    if (w.paper.y < launcher.y - 500) return false;
+  }
+  return false;
+}

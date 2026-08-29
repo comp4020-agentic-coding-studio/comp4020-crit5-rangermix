@@ -23,7 +23,7 @@ export const WALL_TICK_SPACING = 240;
 
 // ----------------------------------------------------------------- physics
 
-export const GRAVITY = 1800;
+export const GRAVITY = 1500;
 export const DAMPING = 0.2;
 export const SUBSTEP = 1 / 240;
 export const MAX_FLIGHT_TIME = 8;
@@ -43,7 +43,7 @@ export const REST_TIME = 1;
 
 // ------------------------------------------------------------- the slingshot
 
-export const MAX_LAUNCH_SPEED = 1500;
+export const MAX_LAUNCH_SPEED = 1600;
 /** Pull distance in WORLD units at which the sling is at full power. */
 export const FULL_POWER_PULL = 200;
 /** Below this, in SCREEN px, a pointerup was a tap and not a shot. */
