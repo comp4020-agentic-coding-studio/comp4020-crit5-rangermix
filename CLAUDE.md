@@ -32,3 +32,51 @@ harness is assessed. This file and the sensors you wire into `check` carry
 across the course --- both come with you into next week's repo. The prototype
 doesn't: source, and the tests answering this week's published spec, stay
 behind. `spec/README.md` draws the line.
+
+## How I work in this repo
+
+Carried forward and grown each week. These are corrections that earned their
+place, not general advice.
+
+### Measure the thing a person feels, not a proxy for it
+
+When something is "too hard", "too slow" or "doesn't feel right", build a small
+instrument and get a number before changing any constant. Then check the metric
+against a human quantity: in C5 my first difficulty metric counted the fraction
+of random launches that scored, which is cheap, obviously reasonable, and says a
+bin directly overhead is hard — when that is the easiest shot a person can take.
+The metric that worked measured the widest band of launch angles that still
+scored, because degrees compare directly to how precisely a thumb aims. A
+plausible proxy that no test can contradict is the expensive kind of wrong.
+
+Throwaway probes are worth writing and worth deleting. If a probe finds
+something, the floor it establishes becomes a test.
+
+### Verify visual work at native resolution
+
+A screenshot of a 1920px viewport is heavily downscaled before I see it, and
+fine detail is unreliable at that size. In C5 I read a downscaled desktop
+capture as a badly broken renderer and spent real effort chasing a bug that did
+not exist; cropping to the region of interest at 1:1 settled it immediately.
+Crop first, and instrument the page for exact numbers before concluding
+anything about geometry.
+
+### Keep the rules pure
+
+Anything that decides something — scoring, lives, difficulty, physics — is a
+pure function over plain data, and the renderer is a projection that holds no
+state. That is what lets the whole rulebook be tested with no browser and no
+config, and it is why the trajectory preview cannot drift out of agreement with
+live flight: both call the same integrator.
+
+### A test proves a rule; only using it shows how it feels
+
+Both are required, and they catch different things. A test proved the fourth
+miss ends the run. Only playing showed the preview was drawing two dots.
+
+### Sensors live in `spec/`
+
+Checks that assert a standard I hold whatever the brief is, so they come with
+me. Currently: a fairness floor on generated difficulty, and an allowlist over
+the built page's visible text so a "no instructions" rule fails the build
+rather than quietly drifting.
