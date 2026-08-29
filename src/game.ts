@@ -22,7 +22,7 @@ import {
   REST_TIME,
   STARTING_LIVES,
 } from "./config.ts";
-import { driftX } from "./geometry.ts";
+import { binFloorY, binInnerWidth, driftX } from "./geometry.ts";
 import type { Bin } from "./geometry.ts";
 import { firstLauncher, nextLevel } from "./level.ts";
 import { advance, launchVelocity, simulate } from "./physics.ts";
@@ -30,7 +30,7 @@ import type { Sim, World } from "./physics.ts";
 import { next, seed } from "./rng.ts";
 import type { RngState } from "./rng.ts";
 import { points } from "./scoring.ts";
-import { len, normalize } from "./vec.ts";
+import { clamp, len, normalize } from "./vec.ts";
 import type { Vec } from "./vec.ts";
 
 export type Phase = "attract" | "aiming" | "flight" | "panning" | "gameover";
@@ -80,6 +80,10 @@ export type GameState = {
   readonly cameraY: number;
   readonly panFrom: number;
   readonly panProgress: number;
+
+  /** Where in the launcher's cavity the paper is sitting, as an offset from
+   *  the bin's centre. Set by where the last shot came to rest. */
+  readonly restOffsetX: number;
 
   /** Once true, the attract loop never runs again: the player has shown they
    *  know the gesture, and repeating the lesson would be nagging. */
@@ -152,9 +156,24 @@ export function attractDots(t: number): number {
   return 0;
 }
 
-/** Where the paper sits when it isn't flying: in the launcher, drawn back by
- *  however hard the player is pulling. */
-function atRest(world: World, pull: Vec | null): World {
+/**
+ * Where the next shot leaves from: the spot in the launcher's cavity where the
+ * last one came to rest.
+ *
+ * The paper stays where it landed rather than being tidied back to the middle
+ * of the rim, so where you land decides where you throw from. A shot that
+ * scrapes in at the left edge leaves you shooting from the left edge.
+ */
+export function launchOrigin(world: World, offsetX: number): Vec {
+  return {
+    x: driftX(world.launcher, world.t) + offsetX,
+    y: binFloorY(world.launcher) + PAPER_RADIUS,
+  };
+}
+
+/** The same spot, drawn back by however hard the player is pulling. */
+function atRest(world: World, pull: Vec | null, offsetX: number): World {
+  const origin = launchOrigin(world, offsetX);
   let dx = 0;
   let dy = 0;
   if (pull) {
@@ -167,8 +186,9 @@ function atRest(world: World, pull: Vec | null): World {
     ...world,
     paper: {
       ...world.paper,
-      x: driftX(world.launcher, world.t) + dx,
-      y: world.launcher.y + dy,
+      x: origin.x + dx,
+      // the wind-up presses down into the basket, never through its floor
+      y: Math.max(origin.y + dy, binFloorY(world.launcher)),
       vx: 0,
       vy: 0,
       spin: 0,
@@ -201,6 +221,7 @@ export function initial(rngSeed: number, best = 0, reducedMotion = false): GameS
     flightTime: 0,
     restTime: 0,
     popup: null,
+    restOffsetX: 0,
     cameraY: cameraFor(launcher),
     panFrom: cameraFor(launcher),
     panProgress: 1,
@@ -213,8 +234,8 @@ export function initial(rngSeed: number, best = 0, reducedMotion = false): GameS
 
 /** Advance the world clock without touching the paper's flight --- bins drift
  *  while you aim, which is most of what makes aiming interesting. */
-function idleWorld(world: World, dt: number, pull: Vec | null): World {
-  return atRest({ ...world, t: world.t + dt }, pull);
+function idleWorld(world: World, dt: number, pull: Vec | null, offsetX: number): World {
+  return atRest({ ...world, t: world.t + dt }, pull, offsetX);
 }
 
 const easeInOutCubic = (x: number): number =>
@@ -236,10 +257,17 @@ function onCapture(state: GameState): Reduced {
   // the bin just landed in becomes the bin thrown from, keeping its offset
   // from the wall and its motion --- that is the whole idea of the game
   const launcher = world.target;
-  const next = nextLevel(launcher, level, state.rng);
+  // Obstacles above the old target are above the new launcher, so they survive
+  // the climb instead of popping out of existence during the pan.
+  const next = nextLevel(launcher, level, state.rng, world.obstacles);
 
   const lives = livesAfterCapture(state.lives, level);
   const earnedLife = lives > state.lives;
+
+  // Where it went in is where the next shot leaves from, clamped so the ball
+  // sits wholly inside the cavity rather than half-through a wall.
+  const room = binInnerWidth(launcher) / 2 - PAPER_RADIUS;
+  const restOffsetX = clamp(world.paper.x - driftX(launcher, world.t), -room, room);
 
   return {
     state: {
@@ -250,16 +278,18 @@ function onCapture(state: GameState): Reduced {
       score: state.score + gained,
       combo,
       maxCombo: Math.max(state.maxCombo, combo),
+      restOffsetX,
       sim: {
         world: atRest(
           { ...world, launcher, target: next.target, obstacles: next.obstacles, launcherArmed: false },
           null,
+          restOffsetX,
         ),
         accumulator: 0,
       },
       rng: next.rng,
       aim: null,
-      popup: { points: gained, x: driftX(launcher, world.t), y: launcher.y, age: 0 },
+      popup: { points: gained, x: driftX(launcher, world.t) + restOffsetX, y: launcher.y, age: 0 },
       panFrom: state.cameraY,
       panProgress: 0,
     },
@@ -280,7 +310,7 @@ function onMiss(state: GameState): Reduced {
       lives: over ? 0 : state.lives - 1,
       combo: 0,
       best: over ? Math.max(state.best, state.score) : state.best,
-      sim: { world: atRest(state.sim.world, null), accumulator: 0 },
+      sim: { world: atRest(state.sim.world, null, state.restOffsetX), accumulator: 0 },
       aim: null,
       flightTime: 0,
       restTime: 0,
@@ -307,7 +337,12 @@ function onTick(state: GameState, dt: number): Reduced {
           attractT,
           sim: {
             ...state.sim,
-            world: idleWorld(state.sim.world, dt, attractPull(attractT, attractLean(state.sim.world))),
+            world: idleWorld(
+              state.sim.world,
+              dt,
+              attractPull(attractT, attractLean(state.sim.world)),
+              state.restOffsetX,
+            ),
           },
           popup,
         },
@@ -319,7 +354,7 @@ function onTick(state: GameState, dt: number): Reduced {
       return {
         state: {
           ...state,
-          sim: { ...state.sim, world: idleWorld(state.sim.world, dt, state.aim?.pull ?? null) },
+          sim: { ...state.sim, world: idleWorld(state.sim.world, dt, state.aim?.pull ?? null, state.restOffsetX) },
           popup,
         },
         sounds: [],
@@ -335,7 +370,7 @@ function onTick(state: GameState, dt: number): Reduced {
           phase: panProgress >= 1 ? "aiming" : "panning",
           panProgress,
           cameraY: state.panFrom + (to - state.panFrom) * easeInOutCubic(panProgress),
-          sim: { ...state.sim, world: idleWorld(state.sim.world, dt, null) },
+          sim: { ...state.sim, world: idleWorld(state.sim.world, dt, null, state.restOffsetX) },
           popup,
         },
         sounds: [],
@@ -365,7 +400,17 @@ function onTick(state: GameState, dt: number): Reduced {
         return { state: captured.state, sounds: [...sounds, ...captured.sounds] };
       }
 
+      // Once the paper is back below the rim it came from and still falling,
+      // it is dead: the target is always above, and a 0.32-restitution bounce
+      // cannot return the ~860 u/s it would need to climb back to it. Waiting
+      // out the rest timer after that is just making the player watch a
+      // decided shot. The grace period keeps a badly aimed shot visible long
+      // enough to read as a throw rather than a glitch.
+      const sunk =
+        flightTime > 0.35 && paper.vy < 0 && paper.y < stepped.sim.world.launcher.y;
+
       const missed =
+        sunk ||
         paper.y < state.cameraY - PAPER_RADIUS * 4 ||
         flightTime > MAX_FLIGHT_TIME ||
         restTime > REST_TIME;
@@ -404,7 +449,7 @@ export function reduce(state: GameState, event: GameEvent): Reduced {
         state: {
           ...state,
           aim: { pull: event.pull, pullPx: event.pullPx },
-          sim: { ...state.sim, world: atRest(state.sim.world, event.pull) },
+          sim: { ...state.sim, world: atRest(state.sim.world, event.pull, state.restOffsetX) },
         },
         sounds: [],
       };
@@ -412,7 +457,7 @@ export function reduce(state: GameState, event: GameEvent): Reduced {
     case "aimCancel":
       if (state.phase !== "aiming") return { state, sounds: [] };
       return {
-        state: { ...state, aim: null, sim: { ...state.sim, world: atRest(state.sim.world, null) } },
+        state: { ...state, aim: null, sim: { ...state.sim, world: atRest(state.sim.world, null, state.restOffsetX) } },
         sounds: [],
       };
 
@@ -424,7 +469,7 @@ export function reduce(state: GameState, event: GameEvent): Reduced {
           state: {
             ...state,
             aim: null,
-            sim: { ...state.sim, world: atRest(state.sim.world, null) },
+            sim: { ...state.sim, world: atRest(state.sim.world, null, state.restOffsetX) },
           },
           sounds: [],
         };
@@ -440,6 +485,7 @@ export function reduce(state: GameState, event: GameEvent): Reduced {
 function launch(state: GameState, pull: Vec): GameState {
   const world = state.sim.world;
   const v = launchVelocity(pull);
+  const origin = launchOrigin(world, state.restOffsetX);
   return {
     ...state,
     phase: "flight",
@@ -453,8 +499,8 @@ function launch(state: GameState, pull: Vec): GameState {
         ...world,
         launcherArmed: false,
         paper: {
-          x: driftX(world.launcher, world.t),
-          y: world.launcher.y,
+          x: origin.x,
+          y: origin.y,
           vx: v.x,
           vy: v.y,
           angle: world.paper.angle,
@@ -480,20 +526,17 @@ function restart(state: GameState): GameState {
 /** The trajectory preview, for whatever is currently being aimed. Derived
  *  state --- it belongs to the view --- but it runs simulate(), the same code
  *  path as live flight, so the dots cannot drift out of agreement with it. */
-export function previewFrom(world: World, pull: Vec, maxTime: number, interval: number): Vec[] {
+export function previewFrom(
+  world: World,
+  pull: Vec,
+  offsetX: number,
+  maxTime: number,
+  interval: number,
+): Vec[] {
   const v = launchVelocity(pull);
+  const origin = launchOrigin(world, offsetX);
   return simulate(
-    {
-      ...world,
-      launcherArmed: false,
-      paper: {
-        ...world.paper,
-        x: driftX(world.launcher, world.t),
-        y: world.launcher.y,
-        vx: v.x,
-        vy: v.y,
-      },
-    },
+    { ...world, launcherArmed: false, paper: { ...world.paper, ...origin, vx: v.x, vy: v.y } },
     maxTime,
     interval,
   );

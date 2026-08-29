@@ -5,12 +5,14 @@
 // a fixed substep with a carried accumulator, is what makes the whole
 // simulation reproducible from a seed and testable without a canvas.
 import {
+  BIN_FRICTION,
   BIN_RESTITUTION,
   DAMPING,
   FULL_POWER_PULL,
   GRAVITY,
   MAX_FRAME,
   MAX_LAUNCH_SPEED,
+  OBSTACLE_FRICTION,
   OBSTACLE_RESTITUTION,
   PAPER_RADIUS,
   SHAFT_WIDTH,
@@ -20,7 +22,7 @@ import {
   WALL_RESTITUTION,
 } from "./config.ts";
 import { didCapture, isInsideBin } from "./capture.ts";
-import { binBars, driftVx, obstacleBox } from "./geometry.ts";
+import { binBars, driftVx, obstacleBox, obstacleDisc } from "./geometry.ts";
 import type { Aabb, Bin, Obstacle, Paper } from "./geometry.ts";
 import { clamp, len } from "./vec.ts";
 import type { Vec } from "./vec.ts";
@@ -53,16 +55,54 @@ export type StepResult = {
 type Scratch = { x: number; y: number; vx: number; vy: number };
 
 /**
+ * Reflect off a surface with the given outward normal.
+ *
+ * Resolved in the COLLIDER's frame (`vRel = v - vCollider`), without which a
+ * tier-5 bin sweeping at ~660 u/s slides straight through the paper instead of
+ * batting it. Splitting the relative velocity into normal and tangential parts
+ * is what lets friction exist at all: restitution decides how much of the
+ * bounce comes back, friction decides how much of the slide survives. A ball
+ * that drops into a bin with no tangential friction skids for seconds.
+ *
+ * Returns the impact speed, or null if the surfaces were already separating.
+ */
+function bounce(
+  m: Scratch,
+  nx: number,
+  ny: number,
+  colliderVx: number,
+  restitution: number,
+  friction: number,
+): number | null {
+  const relX = m.vx - colliderVx;
+  const relY = m.vy;
+  const closing = relX * nx + relY * ny;
+  if (closing >= 0) return null; // already separating; the push-out was enough
+
+  const tangentX = relX - closing * nx;
+  const tangentY = relY - closing * ny;
+  const rebound = -closing * restitution;
+
+  m.vx = tangentX * friction + rebound * nx + colliderVx;
+  m.vy = tangentY * friction + rebound * ny;
+  return -closing;
+}
+
+/**
  * Circle against an axis-aligned box, by the closest-point method.
  *
  * The closest point on a box to an outside circle lies on a face for a face
  * hit and on a corner for a corner hit, so the normal it produces is already
  * corner-anchored --- which is exactly the rounded rim response the game
  * wants, with no separate rim-cap primitives.
- *
- * Returns the impact speed, or null if there was no closing contact.
  */
-function resolveBox(m: Scratch, box: Aabb, boxVx: number, restitution: number): number | null {
+function resolveBox(
+  m: Scratch,
+  box: Aabb,
+  boxVx: number,
+  restitution: number,
+  friction: number,
+): number | null {
   const px = clamp(m.x, box.minX, box.maxX);
   const py = clamp(m.y, box.minY, box.maxY);
   let nx = m.x - px;
@@ -103,36 +143,47 @@ function resolveBox(m: Scratch, box: Aabb, boxVx: number, restitution: number): 
     m.y = py + ny * PAPER_RADIUS;
   }
 
-  // Reflect in the COLLIDER's frame. A tier-5 bin sweeps at up to ~660 u/s;
-  // reflecting in world space would let it slide straight through the paper
-  // instead of batting it.
-  const relX = m.vx - boxVx;
-  const relY = m.vy;
-  const closing = relX * nx + relY * ny;
-  if (closing >= 0) return null; // already separating; the push-out was enough
+  return bounce(m, nx, ny, boxVx, restitution, friction);
+}
 
-  const j = -(1 + restitution) * closing;
-  m.vx = relX + j * nx + boxVx;
-  m.vy = relY + j * ny;
-  return -closing;
+/** Circle against circle. A disc deflects by where you hit it rather than by
+ *  which face you hit, which is the whole reason it is in the game. */
+function resolveDisc(
+  m: Scratch,
+  cx: number,
+  cy: number,
+  radius: number,
+  discVx: number,
+  restitution: number,
+  friction: number,
+): number | null {
+  let nx = m.x - cx;
+  let ny = m.y - cy;
+  const d = Math.hypot(nx, ny);
+  const touching = radius + PAPER_RADIUS;
+  if (d > touching) return null;
+
+  if (d === 0) {
+    nx = 0;
+    ny = 1;
+  } else {
+    nx /= d;
+    ny /= d;
+  }
+  m.x = cx + nx * touching;
+  m.y = cy + ny * touching;
+
+  return bounce(m, nx, ny, discVx, restitution, friction);
 }
 
 function resolveWalls(m: Scratch): number | null {
   if (m.x - PAPER_RADIUS < 0) {
     m.x = PAPER_RADIUS;
-    if (m.vx >= 0) return null;
-    const speed = -m.vx;
-    m.vx = speed * WALL_RESTITUTION;
-    m.vy *= WALL_FRICTION;
-    return speed;
+    return bounce(m, 1, 0, 0, WALL_RESTITUTION, WALL_FRICTION);
   }
   if (m.x + PAPER_RADIUS > SHAFT_WIDTH) {
     m.x = SHAFT_WIDTH - PAPER_RADIUS;
-    if (m.vx <= 0) return null;
-    const speed = m.vx;
-    m.vx = -speed * WALL_RESTITUTION;
-    m.vy *= WALL_FRICTION;
-    return speed;
+    return bounce(m, -1, 0, 0, WALL_RESTITUTION, WALL_FRICTION);
   }
   return null;
 }
@@ -162,17 +213,29 @@ export function substep(world: World, dt: number): StepResult {
   if (world.launcherArmed) {
     const vx = driftVx(world.launcher, t);
     for (const bar of binBars(world.launcher, t)) {
-      push("bin", resolveBox(m, bar, vx, BIN_RESTITUTION));
+      push("bin", resolveBox(m, bar, vx, BIN_RESTITUTION, BIN_FRICTION));
     }
   }
 
   for (const o of world.obstacles) {
-    push("obstacle", resolveBox(m, obstacleBox(o, t), driftVx(o, t), OBSTACLE_RESTITUTION));
+    const vx = driftVx(o, t);
+    if (o.shape === "disc") {
+      const disc = obstacleDisc(o, t);
+      push(
+        "obstacle",
+        resolveDisc(m, disc.x, disc.y, disc.r, vx, OBSTACLE_RESTITUTION, OBSTACLE_FRICTION),
+      );
+    } else {
+      push(
+        "obstacle",
+        resolveBox(m, obstacleBox(o, t), vx, OBSTACLE_RESTITUTION, OBSTACLE_FRICTION),
+      );
+    }
   }
 
   const targetVx = driftVx(world.target, t);
   for (const bar of binBars(world.target, t)) {
-    push("bin", resolveBox(m, bar, targetVx, BIN_RESTITUTION));
+    push("bin", resolveBox(m, bar, targetVx, BIN_RESTITUTION, BIN_FRICTION));
   }
 
   const bounced = contacts.length > 0;

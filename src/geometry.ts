@@ -3,7 +3,7 @@
 // Bins and obstacles drift as a pure function of the world clock, so their
 // position is never stored --- it's derived. That's what lets the trajectory
 // preview run the clock forward and predict a moving target honestly.
-import { BIN_HEIGHT_RATIO, BIN_THICKNESS, OBSTACLE_HEIGHT } from "./config.ts";
+import { BIN_HEIGHT_RATIO, BIN_THICKNESS } from "./config.ts";
 
 /** An axis-aligned box. Half-open in neither direction; edges are solid. */
 export type Aabb = {
@@ -33,10 +33,18 @@ export type Bin = {
   readonly phase: number;
 };
 
+/** Four silhouettes out of two colliders. A shaft full of identical bars reads
+ *  as one repeated idea; posts and discs change what a bounce does, not just
+ *  what it looks like. */
+export type ObstacleShape = "bar" | "post" | "block" | "disc";
+
 export type Obstacle = {
   readonly xBase: number;
+  /** Bottom edge, for every shape --- a disc's centre sits half a height up. */
   readonly y: number;
   readonly width: number;
+  readonly height: number;
+  readonly shape: ObstacleShape;
   readonly amplitude: number;
   readonly frequency: number;
   readonly phase: number;
@@ -68,6 +76,9 @@ export const binHeight = (bin: Bin): number => bin.width * BIN_HEIGHT_RATIO;
 /** The clear span between the inner faces --- the capture zone's width. */
 export const binInnerWidth = (bin: Bin): number => bin.width - 2 * BIN_THICKNESS;
 
+/** The inside of the bin's floor: what a paper that went in comes to rest on. */
+export const binFloorY = (bin: Bin): number => bin.y - binHeight(bin) + BIN_THICKNESS;
+
 /** The three solid parts of a bin at time t: left bar, right bar, floor.
  *  The cavity between them is not a collider; it's the capture zone. */
 export function binBars(bin: Bin, t: number): [Aabb, Aabb, Aabb] {
@@ -85,5 +96,12 @@ export function binBars(bin: Bin, t: number): [Aabb, Aabb, Aabb] {
 export function obstacleBox(o: Obstacle, t: number): Aabb {
   const cx = driftX(o, t);
   const half = o.width / 2;
-  return { minX: cx - half, minY: o.y, maxX: cx + half, maxY: o.y + OBSTACLE_HEIGHT };
+  return { minX: cx - half, minY: o.y, maxX: cx + half, maxY: o.y + o.height };
 }
+
+/** Centre and radius of a disc obstacle at time t. */
+export function obstacleDisc(o: Obstacle, t: number): { x: number; y: number; r: number } {
+  return { x: driftX(o, t), y: o.y + o.height / 2, r: o.width / 2 };
+}
+
+export const obstacleTop = (o: Obstacle): number => o.y + o.height;

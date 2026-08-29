@@ -26,7 +26,7 @@ export const WALL_TICK_SPACING = 240;
 export const GRAVITY = 1500;
 export const DAMPING = 0.2;
 export const SUBSTEP = 1 / 240;
-export const MAX_FLIGHT_TIME = 8;
+export const MAX_FLIGHT_TIME = 5;
 
 export const PAPER_RADIUS = 14;
 
@@ -34,12 +34,21 @@ export const WALL_RESTITUTION = 0.55;
 /** Fraction of tangential speed a wall keeps: grazing shots slide, they
  *  don't stall. */
 export const WALL_FRICTION = 0.92;
-export const BIN_RESTITUTION = 0.4;
-export const OBSTACLE_RESTITUTION = 0.6;
+export const BIN_RESTITUTION = 0.32;
+export const OBSTACLE_RESTITUTION = 0.55;
 
-/** A paper this slow for this long, still on screen, has come to rest. */
-export const REST_SPEED = 40;
-export const REST_TIME = 1;
+/** Tangential speed kept through a bounce. Paper on wire mesh grips hard, and
+ *  that is not just realism: a ball that drops into the launcher used to skid
+ *  around for seconds before the rest rule below would call the miss. Friction
+ *  is what makes a dead shot read as dead, quickly. */
+export const BIN_FRICTION = 0.62;
+export const OBSTACLE_FRICTION = 0.82;
+
+/** A paper this slow for this long, still on screen, has come to rest. Half a
+ *  second is plenty once friction settles it, and a shot at the top of its arc
+ *  is back over the threshold within 40 ms of hanging there. */
+export const REST_SPEED = 55;
+export const REST_TIME = 0.5;
 
 // ------------------------------------------------------------- the slingshot
 
@@ -65,7 +74,9 @@ export const PREVIEW_INTERVAL = 0.03;
 
 export const BIN_THICKNESS = 6;
 export const BIN_HEIGHT_RATIO = 0.62;
-export const OBSTACLE_HEIGHT = 14;
+/** How far above the target's rim an above-target hazard may start. Below
+ *  this it would be capping the bin rather than guarding the approach. */
+export const ABOVE_TARGET_CLEARANCE = 70;
 
 // ---------------------------------------------------------------- the rules
 

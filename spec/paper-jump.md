@@ -115,7 +115,7 @@ A circle collider, drawn as a crumpled ball.
 | Property | Value |
 | --- | --- |
 | radius | 14 u |
-| launch offset | rests visually in the launcher's cavity, but **collision with the launcher is disabled until the paper clears the rim plane + radius** — so a shallow shot can't bonk its own bin |
+| launch offset | **rests on the launcher's floor, at the offset where the last shot came to rest** — see §6. Collision with the launcher is disabled until the paper clears the rim plane + radius, so a shallow shot can't bonk its own bin |
 | visual | off-white irregular 8-gon, charcoal outline, 3 crease strokes, rotates with angular velocity |
 
 Angular velocity is cosmetic — set from launch speed, reversed and scaled on
@@ -141,7 +141,8 @@ An open-topped mesh basket. Three colliders plus a capture zone.
 | wall thickness | 6 u |
 | `innerWidth` | `width - 12` |
 | colliders | three AABBs — left bar, right bar, floor |
-| restitution | 0.40, uniform |
+| restitution | 0.32, uniform |
+| tangential friction | 0.62 |
 
 Circle-vs-AABB by the closest-point method already returns a corner-anchored
 normal, which *is* a rounded rim response, so no separate rim-cap primitives are
@@ -168,7 +169,20 @@ Two vertical planes at `x = 0` and `x = SHAFT_WIDTH`, infinite in y.
 
 ### Obstacle
 
-Axis-aligned bars (tier 2+), width 60–100 u, height 14 u, restitution 0.60.
+Four silhouettes out of two colliders (tier 2+), restitution 0.55, tangential
+friction 0.82:
+
+| Shape | Size | Collider |
+| --- | --- | --- |
+| bar | 70–100 × 14 u | box |
+| post | 16–24 × 46–84 u | box |
+| block | 34–52 × 34–52 u | box |
+| disc | 34–56 u across | circle |
+
+They are not decoration. A bar deflects by which face you hit, a disc by *where*
+on it you hit, and a post is a thin thing to thread past rather than clear. A
+shape that will not fit the vertical room available falls back to a bar.
+
 From tier 4 they drift on the same sine form as bins, but at only 0.3x their
 amplitude: a drifting launcher shooting at a drifting bin is already two moving
 frames to hold in your head, and a third collapses the aiming window.
@@ -187,7 +201,7 @@ what makes §10's tests possible.
 | linear damping | 0.20 /s |
 | substep | 1/240 s |
 | max launch speed | 1600 u/s |
-| max flight time | 8 s |
+| max flight time | 5 s |
 
 Semi-implicit Euler per substep:
 
@@ -337,8 +351,16 @@ drawn from a **seeded RNG** so a run is reproducible:
 - obstacles placed between launcher and target, one per horizontal band, never
   overlapping either bin's full swing and never sealing a height: the widest is
   120 u of a 420 u shaft, so every height keeps clear air across it
-- **every level must clear the 4° aim-tolerance floor** — a stronger promise
-  than merely having a solution somewhere
+- **every level must clear the aim-tolerance floor** — a stronger promise than
+  merely having a solution somewhere
+- from tier 3, one hazard sits **above** the target, sampled inside the span
+  that keeps it clear of the bin's mouth at every point in both their swings.
+  An obstacle over the opening is not difficulty, it is a lid. Placing it by
+  sampling the valid region rather than by rejecting bad draws took it from a
+  14% curiosity to a feature of 91% of eligible levels
+- obstacles above a target are above the **next** launcher, so they are carried
+  across the climb rather than popping out of existence during the pan: the
+  hazard you were shown guarding the bin is the one you then have to throw past
 
 ### Score
 
@@ -373,12 +395,38 @@ a steeper wall.
 The launcher and the target are both unchanged by a miss: you throw again at the
 same bin, from the same place. Level does not rise.
 
+### Where the next shot leaves from
+
+The paper **stays where it landed**. On a capture, its offset from the bin's
+centre is recorded (clamped so the ball sits wholly inside the cavity) and it
+comes to rest on that bin's floor at that offset; the next shot leaves from
+exactly there, not from the middle of the rim.
+
+That is a mechanic, not a detail. Scraping in at the left edge leaves you
+shooting from the left edge, so a scruffy landing costs something on the next
+throw and a clean one is worth more than its points.
+
 Miss is declared when any of:
 
+- **the paper is below the launcher's rim and still falling**, after 0.35 s of
+  flight
 - the paper's centre falls below the bottom of the frame
-- flight time exceeds 8 s
-- the paper is captured by *no* bin and comes to rest inside the frame (only
-  possible resting on an obstacle) — declared after 1.0 s below 40 u/s
+- flight time exceeds 5 s
+- the paper comes to rest inside the frame — after 0.5 s below 55 u/s
+
+The first of those is the one that matters, and it came out of play: a ball that
+dropped back towards the launcher used to rattle for seconds before the rest
+timer would call it. Once it is below the rim it came from and still descending
+it cannot reach a target that is always above it — a 0.32-restitution bounce
+cannot return the ~860 u/s that would take — so there is nothing left to wait
+for. The 0.35 s grace keeps a badly aimed shot visible long enough to read as a
+throw rather than as the game eating the input.
+
+Measured over 8,580 misses: median time-to-verdict **0.85 s**, p90 **1.37 s**,
+worst **4.35 s**. Before the rule, with a 1.0 s rest timer and no tangential
+friction, the same sweep gave 2.28 s / 3.73 s / 8.00 s. Friction does the other
+half of the work: without it a ball dropped into a bin skids instead of
+settling.
 
 ### Capture rule
 
@@ -493,6 +541,36 @@ screen that takes a pointer.
 > audience at the source. Say the word and it becomes a visually-hidden skip
 > link instead.
 
+### 7.6 Audio
+
+Synthesised in WebAudio, no asset files: nothing to load, nothing to license,
+nothing that can fail on a slow connection, and no mute button — which matters,
+because a mute button would be a fourth thing on an overlay allowed three. The
+`AudioContext` is created lazily and unlocked by the first pointerdown, because
+browsers refuse to start audio before a gesture.
+
+**The impacts are noise, not oscillators.** A crumpled sheet hitting wire mesh
+is broadband rustle with a little grain on top; an oscillator gets you a
+doorbell. Each impact reads a random slice of a shared two-second white-noise
+buffer at a randomised playback rate, through a bandpass swept downward — so no
+two bounces sound alike, which is most of what stops a synthesised impact
+sounding synthesised.
+
+| Sound | Layers |
+| --- | --- |
+| wall | noise 430 → 240 Hz, Q 0.8, 90 ms — dull and papery |
+| bin | noise 2300 → 1150 Hz, Q 1.0, 150 ms, plus a quiet 5400 Hz grain at 50 ms — rustle, then wire |
+| obstacle | noise 950 → 520 Hz, Q 1.1, 70 ms |
+| score | the landing (noise 2100 → 950 Hz) and then the cue that it counted (sine 520 → 1040 Hz) |
+| extra life | triangle 700 → 1400 Hz, 340 ms |
+| life lost | sine 420 → 150 Hz, 260 ms |
+| game over | sine 300 → 70 Hz, 700 ms |
+
+Gain scales with the impact speed the physics reports, so a graze does not thud
+like a slam, and each kind has a cooldown so a bouncing paper cannot
+machine-gun. Every envelope decays exponentially; a linear fade reads as a
+click.
+
 ---
 
 ## 8. Art direction
@@ -535,16 +613,23 @@ Modules, split so the rules are pure and the canvas is thin:
 
 | Module | Contains | Pure? |
 | --- | --- | --- |
+| `src/config.ts` | every tunable, in world units only | ✅ |
 | `src/rng.ts` | mulberry32, seeded | ✅ |
+| `src/vec.ts` | 2D helpers | ✅ |
+| `src/geometry.ts` | shapes, and where they are at time `t` | ✅ |
 | `src/scoring.ts` | `points(combo)` | ✅ |
 | `src/difficulty.ts` | `tier(level)`, `params(level)` | ✅ |
-| `src/physics.ts` | `step()`, `simulate()`, collision resolution | ✅ |
-| `src/capture.ts` | `didCapture(prev, cur, bin)` | ✅ |
+| `src/physics.ts` | `substep()`, `advance()`, `simulate()`, collision resolution | ✅ |
+| `src/capture.ts` | `didCapture()`, `isInsideBin()` | ✅ |
 | `src/level.ts` | target and obstacle placement from a seed | ✅ |
 | `src/game.ts` | the reducer: `reduce(state, event) → state` | ✅ |
 | `src/render.ts` | canvas drawing | ❌ |
-| `src/input.ts` | pointer events → events | ❌ |
-| `main.ts` | wiring, RAF loop, overlay | ❌ |
+| `src/input.ts` | pointer and keyboard → events | ❌ |
+| `src/audio.ts` | synthesised impacts and cues | ❌ |
+| `main.ts` | wiring, RAF loop, overlay, `localStorage` | ❌ |
+
+`scripts/difficulty-probe.ts` (`pnpm probe`) sits beside them: not shipped, not
+a test, but the instrument every difficulty number in §6 came out of.
 
 Everything that constitutes a *rule* is a pure function taking plain data. The
 canvas is a projection of state and holds none of it.
@@ -578,6 +663,19 @@ And the rules that decide when play ends:
    trajectory, at any frame rate
 10. the preview never crosses a wall — `simulate()` truncated at first contact
     returns no point beyond either wall plane
+
+And the rules that came out of playing it:
+
+11. a paper that ends up in the cavity is captured however it got there — the
+    trap regression, pinned to the drifting levels and phases that actually
+    reproduce it, and verified to fail without the fix
+12. a shot that sinks below its own rim is called dead inside 0.7 s, and never
+    inside 0.35 s
+13. the next shot leaves from where the last one came to rest, on the bin's
+    floor, at an offset that fits inside the cavity
+14. an above-target hazard never caps the mouth, and obstacles carry across the
+    climb
+15. the overlay has a dot for every life the game can award
 
 These test the *contract*, not the implementation: they'd survive swapping the
 renderer or the integrator.
@@ -617,6 +715,4 @@ for:
 3. **"click to restart" on touch** — kept verbatim as specified. It could read
    `tap to restart` on a coarse pointer; it is an end-of-run prompt rather than
    a tutorial either way, so the brief's no-instructions rule is not in play.
-4. **audio** — not specified and currently out of scope. A single soft thud on
-   wall contact and a rim-drop tick would carry a lot of feel for very little
-   code, if wanted.
+4. **audio** — now specified in §7.6 and shipped.

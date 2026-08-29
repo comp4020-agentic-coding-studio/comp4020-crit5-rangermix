@@ -85,11 +85,14 @@ function tolerance(
 function at(level: number, rngSeed: number): number {
   let launcher = firstLauncher();
   let rng = seed(rngSeed);
+  // obstacles thread through as they do in play: some survive the climb
+  let obstacles: readonly Obstacle[] = [];
   for (let i = 1; i <= level; i++) {
-    const next = nextLevel(launcher, i, rng);
+    const next = nextLevel(launcher, i, rng, obstacles);
     if (i === level) return tolerance(launcher, next.target, next.obstacles, params(i).driftFrequency);
     launcher = next.target;
     rng = next.rng;
+    obstacles = next.obstacles;
   }
   return 0;
 }

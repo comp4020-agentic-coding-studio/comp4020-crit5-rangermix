@@ -96,8 +96,8 @@ describe("difficulty tiers", () => {
 // --------------------------------------------------------------- fixtures
 
 import {
+  ABOVE_TARGET_CLEARANCE,
   FULL_POWER_PULL,
-  OBSTACLE_HEIGHT,
   PAPER_RADIUS,
   PREVIEW_INTERVAL,
   PREVIEW_TIME,
@@ -378,7 +378,7 @@ describe("the slingshot", () => {
 // ------------------------------------------------------- level generation
 
 import { firstLauncher, nextLevel } from "../src/level.ts";
-import { binHeight } from "../src/geometry.ts";
+import { binHeight, obstacleTop } from "../src/geometry.ts";
 import type { Obstacle } from "../src/geometry.ts";
 import { seed } from "../src/rng.ts";
 
@@ -387,11 +387,15 @@ import { seed } from "../src/rng.ts";
 function* run(rngSeed: number, levels: number) {
   let launcher = firstLauncher();
   let rng = seed(rngSeed);
+  // Obstacles thread through exactly as onCapture threads them, so these
+  // tests exercise the path the game actually takes rather than a tidier one.
+  let obstacles: readonly Obstacle[] = [];
   for (let level = 1; level <= levels; level++) {
-    const next = nextLevel(launcher, level, rng);
+    const next = nextLevel(launcher, level, rng, obstacles);
     yield { level, launcher, ...next };
     launcher = next.target;
     rng = next.rng;
+    obstacles = next.obstacles;
   }
 }
 
@@ -419,14 +423,45 @@ describe("level generation", () => {
   });
 
   it("never puts an obstacle flush against either bin", () => {
+    // An obstacle is either between the bins or above the target guarding its
+    // approach. Nothing may sit against a bin's body, and nothing above the
+    // target may ever cap its mouth --- an obstacle over the opening is not
+    // difficulty, it is a lid.
     for (let s = 1; s <= 40; s++) {
       for (const { launcher, target, obstacles } of run(s * 15485863, 40)) {
         for (const o of obstacles) {
           expect(o.y).toBeGreaterThan(launcher.y);
-          expect(o.y + OBSTACLE_HEIGHT).toBeLessThan(target.y - binHeight(target));
+          const between = obstacleTop(o) < target.y - binHeight(target);
+          if (between) continue;
+          expect(o.y, "an above-target hazard sits clear of the rim").toBeGreaterThanOrEqual(
+            target.y + ABOVE_TARGET_CLEARANCE,
+          );
+          const needed =
+            target.width / 2 + target.amplitude + o.width / 2 + o.amplitude + PAPER_RADIUS * 2;
+          expect(
+            Math.abs(o.xBase - target.xBase),
+            "an above-target hazard must never cap the mouth",
+          ).toBeGreaterThanOrEqual(needed);
         }
       }
     }
+  });
+
+  it("carries an above-target hazard across the climb", () => {
+    // It is shown early on purpose: it punishes an overshoot now and becomes
+    // the next shot's problem after you land. Popping it out of existence
+    // during the camera pan would waste that.
+    let carriedEver = 0;
+    for (let s = 1; s <= 30; s++) {
+      let previous: readonly { xBase: number; y: number }[] = [];
+      for (const { obstacles } of run(s * 2654435761, 24)) {
+        for (const o of obstacles) {
+          if (previous.some((q) => q.xBase === o.xBase && q.y === o.y)) carriedEver++;
+        }
+        previous = obstacles;
+      }
+    }
+    expect(carriedEver).toBeGreaterThan(0);
   });
 
   it("never seals a height: no obstacle can span the shaft", () => {
@@ -436,7 +471,7 @@ describe("level generation", () => {
       for (const { obstacles } of run(s * 32452843, 40)) {
         const sorted = [...obstacles].sort((a, b) => a.y - b.y);
         for (let i = 1; i < sorted.length; i++) {
-          expect(sorted[i]!.y).toBeGreaterThan(sorted[i - 1]!.y + OBSTACLE_HEIGHT);
+          expect(sorted[i]!.y).toBeGreaterThanOrEqual(obstacleTop(sorted[i - 1]!));
         }
         for (const o of obstacles) expect(o.width).toBeLessThan(SHAFT_WIDTH / 2);
       }
@@ -841,5 +876,100 @@ describe("earning a life in play", () => {
     }
     expect(s!.level).toBe(6);
     expect(s!.lives).toBe(STARTING_LIVES + 1);
+  }, 60_000);
+});
+
+// ------------------------------------------- calling a dead shot, and where
+//                                              the next one leaves from
+
+import { MAX_FLIGHT_TIME } from "../src/config.ts";
+import { launchOrigin } from "../src/game.ts";
+import { binFloorY, binInnerWidth } from "../src/geometry.ts";
+
+describe("calling a shot dead", () => {
+  it("does not make the player watch a decided shot", () => {
+    // Reported from play: a ball that dropped back towards the launcher took
+    // seconds to be called. Once it is below the rim it came from and still
+    // falling it cannot reach a target that is always above it, so there is
+    // nothing left to wait for.
+    for (let angle = 20; angle <= 160; angle += 10) {
+      let s = play(initial(3), { type: "aimStart" }, {
+        type: "aimMove",
+        pull: { x: Math.cos((angle * Math.PI) / 180) * 40, y: -180 },
+        pullPx: 200,
+      }, { type: "aimEnd" });
+      let seconds = 0;
+      while (s.phase === "flight" && seconds < MAX_FLIGHT_TIME + 1) {
+        s = reduce(s, { type: "tick", dt: 1 / 60 }).state;
+        seconds += 1 / 60;
+      }
+      expect(s.phase, `angle ${angle} never resolved`).not.toBe("flight");
+      expect(seconds, `angle ${angle} took ${seconds.toFixed(2)}s`).toBeLessThan(0.7);
+    }
+  });
+
+  it("still gives a shot long enough to read as a throw", () => {
+    // A weak lob that dies in front of you is the case the grace period is
+    // for: it never leaves the frame, so only the sunk rule can call it, and
+    // calling it the instant it starts descending would look like the game
+    // eating the input. (A shot fired straight DOWN needs no grace --- it
+    // leaves the frame in a tenth of a second, which is plainly visible.)
+    let s = play(initial(3), { type: "aimStart" }, {
+      type: "aimMove",
+      pull: { x: 30, y: 90 },
+      pullPx: 200,
+    }, { type: "aimEnd" });
+    let seconds = 0;
+    while (s.phase === "flight" && seconds < 3) {
+      s = reduce(s, { type: "tick", dt: 1 / 60 }).state;
+      seconds += 1 / 60;
+    }
+    expect(s.phase).not.toBe("flight");
+    expect(seconds).toBeGreaterThan(0.35);
+  });
+});
+
+describe("where the next shot leaves from", () => {
+  it("leaves from where the last one came to rest, not the middle of the rim", () => {
+    let s: GameState | null = initial(7);
+    for (let angle = 10; angle <= 170 && s; angle += 0.5) {
+      for (const power of [0.6, 0.75, 0.9, 1]) {
+        const a = (angle * Math.PI) / 180;
+        const pull = {
+          x: Math.cos(a) * FULL_POWER_PULL * power,
+          y: Math.sin(a) * FULL_POWER_PULL * power,
+        };
+        let attempt = play(s, { type: "aimStart" }, { type: "aimMove", pull, pullPx: 200 }, {
+          type: "aimEnd",
+        });
+        for (let i = 0; i < 2000 && attempt.phase === "flight"; i++) {
+          attempt = reduce(attempt, { type: "tick", dt: 1 / 60 }).state;
+        }
+        if (attempt.level > s.level) {
+          for (let i = 0; i < 200 && attempt.phase === "panning"; i++) {
+            attempt = reduce(attempt, { type: "tick", dt: 1 / 60 }).state;
+          }
+          const world = attempt.sim.world;
+          const room = binInnerWidth(world.launcher) / 2 - PAPER_RADIUS;
+
+          // it sits somewhere it could actually have landed
+          expect(Math.abs(attempt.restOffsetX)).toBeLessThanOrEqual(room + 1e-9);
+          // resting on the floor of the bin, at that offset
+          const origin = launchOrigin(world, attempt.restOffsetX);
+          expect(world.paper.x).toBeCloseTo(origin.x, 9);
+          expect(world.paper.y).toBeCloseTo(binFloorY(world.launcher) + PAPER_RADIUS, 9);
+          // and the next shot leaves from exactly there
+          const fired = play(attempt, { type: "aimStart" }, {
+            type: "aimMove",
+            pull: { x: 0, y: FULL_POWER_PULL },
+            pullPx: 200,
+          }, { type: "aimEnd" });
+          expect(fired.sim.world.paper.x).toBeCloseTo(origin.x, 9);
+          expect(fired.sim.world.paper.y).toBeCloseTo(origin.y, 9);
+          return;
+        }
+      }
+    }
+    throw new Error("no launch in the whole sweep scored");
   }, 60_000);
 });

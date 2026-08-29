@@ -3,7 +3,6 @@
 import {
   BIN_THICKNESS,
   NOMINAL_HEIGHT,
-  OBSTACLE_HEIGHT,
   PAPER_RADIUS,
   POPUP_RISE,
   POPUP_TIME,
@@ -13,9 +12,9 @@ import {
   SHAFT_WIDTH,
   WALL_TICK_SPACING,
 } from "./config.ts";
-import { attractDots, attractLean, attractPull, previewFrom } from "./game.ts";
+import { attractDots, attractLean, attractPull, launchOrigin, previewFrom } from "./game.ts";
 import type { GameState } from "./game.ts";
-import { binHeight, driftX, obstacleBox } from "./geometry.ts";
+import { binHeight, driftX, obstacleBox, obstacleDisc } from "./geometry.ts";
 import type { Bin } from "./geometry.ts";
 
 const INK = "#2a2925";
@@ -87,8 +86,15 @@ export function render(ctx: CanvasRenderingContext2D, state: GameState, v: View)
   // ------------------------------------------------------------- obstacles
   ctx.fillStyle = INK;
   for (const o of world.obstacles) {
-    const box = obstacleBox(o, world.t);
-    ctx.fillRect(sx(box.minX), sy(box.maxY), u(o.width), u(OBSTACLE_HEIGHT));
+    if (o.shape === "disc") {
+      const disc = obstacleDisc(o, world.t);
+      ctx.beginPath();
+      ctx.arc(sx(disc.x), sy(disc.y), u(disc.r), 0, Math.PI * 2);
+      ctx.fill();
+    } else {
+      const box = obstacleBox(o, world.t);
+      ctx.fillRect(sx(box.minX), sy(box.maxY), u(o.width), u(o.height));
+    }
   }
 
   // ------------------------------------------------------------------ bins
@@ -102,7 +108,7 @@ export function render(ctx: CanvasRenderingContext2D, state: GameState, v: View)
   const dotAlpha = state.phase === "attract" ? attractDots(state.attractT) : 1;
 
   if (showing && dotAlpha > 0.001 && (showing.x !== 0 || showing.y !== 0)) {
-    const dots = previewFrom(world, showing, PREVIEW_TIME, PREVIEW_INTERVAL);
+    const dots = previewFrom(world, showing, state.restOffsetX, PREVIEW_TIME, PREVIEW_INTERVAL);
     ctx.fillStyle = INK;
     dots.forEach((p, i) => {
       const k = i / Math.max(1, dots.length - 1);
@@ -118,7 +124,8 @@ export function render(ctx: CanvasRenderingContext2D, state: GameState, v: View)
     ctx.globalAlpha = 0.3 * dotAlpha;
     ctx.lineWidth = Math.max(1, u(2));
     ctx.beginPath();
-    ctx.moveTo(sx(driftX(world.launcher, world.t)), sy(world.launcher.y));
+    const origin = launchOrigin(world, state.restOffsetX);
+    ctx.moveTo(sx(origin.x), sy(origin.y));
     ctx.lineTo(sx(world.paper.x), sy(world.paper.y));
     ctx.stroke();
     ctx.globalAlpha = 1;
