@@ -107,9 +107,9 @@ export function render(ctx: CanvasRenderingContext2D, state: GameState, v: View)
     ctx.fillStyle = INK;
     dots.forEach((p, i) => {
       const k = i / Math.max(1, dots.length - 1);
-      ctx.globalAlpha = (0.6 - k * 0.42) * dotAlpha;
+      ctx.globalAlpha = (0.62 - k * 0.4) * dotAlpha;
       ctx.beginPath();
-      ctx.arc(sx(p.x), sy(p.y), u(4.5 - k * 3), 0, Math.PI * 2);
+      ctx.arc(sx(p.x), sy(p.y), u(4 - k * 2.4), 0, Math.PI * 2);
       ctx.fill();
     });
     ctx.globalAlpha = 1;
@@ -126,12 +126,12 @@ export function render(ctx: CanvasRenderingContext2D, state: GameState, v: View)
   }
 
   // ----------------------------------------------------------------- paper
-  drawPaper(ctx, world.paper.x, world.paper.y, world.paper.angle, sx, sy, u);
+  drawPaper(ctx, world.paper.x, world.paper.y, state.reducedMotion ? 0 : world.paper.angle, sx, sy, u);
 
   // ----------------------------------------------------------------- popup
   if (state.popup) {
     const k = state.popup.age / POPUP_TIME;
-    const pop = k < 0.17 ? 0.9 + (k / 0.17) * 0.25 : 1.15;
+    const pop = state.reducedMotion ? 1 : k < 0.17 ? 0.9 + (k / 0.17) * 0.25 : 1.15;
     ctx.save();
     ctx.globalAlpha = Math.max(0, 1 - k * k);
     ctx.fillStyle = ACCENT;

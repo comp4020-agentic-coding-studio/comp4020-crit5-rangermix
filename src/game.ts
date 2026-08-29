@@ -42,7 +42,11 @@ export type GameEvent =
   | { readonly type: "aimCancel" }
   | { readonly type: "restart" };
 
-export type Sound = "wall" | "bin" | "obstacle" | "score" | "life" | "over";
+export type SoundKind = "wall" | "bin" | "obstacle" | "score" | "life" | "over";
+
+/** A sound the frame earned, with how hard it was earned. Carrying the
+ *  intensity is what stops a graze off a wall thudding like a slam into it. */
+export type Sound = { readonly kind: SoundKind; readonly intensity: number };
 
 export type Popup = {
   readonly points: number;
@@ -241,7 +245,7 @@ function onCapture(state: GameState): Reduced {
       panFrom: state.cameraY,
       panProgress: 0,
     },
-    sounds: ["score"],
+    sounds: [{ kind: "score", intensity: Math.min(1, 0.55 + gained * 0.12) }],
   };
 }
 
@@ -262,7 +266,7 @@ function onMiss(state: GameState): Reduced {
       restTime: 0,
       gameoverT: 0,
     },
-    sounds: over ? ["over"] : ["life"],
+    sounds: [{ kind: over ? "over" : "life", intensity: 1 }],
   };
 }
 
@@ -271,7 +275,12 @@ function onTick(state: GameState, dt: number): Reduced {
 
   switch (state.phase) {
     case "attract": {
-      const attractT = (state.attractT + dt) % ATTRACT_CYCLE;
+      // Reduced motion holds the demonstration at the top of its pull instead
+      // of cycling: still shows the gesture and its consequence, without the
+      // repeating movement.
+      const attractT = state.reducedMotion
+        ? ATTRACT_DRAW
+        : (state.attractT + dt) % ATTRACT_CYCLE;
       return {
         state: {
           ...state,
@@ -318,7 +327,11 @@ function onTick(state: GameState, dt: number): Reduced {
 
     case "flight": {
       const stepped = advance(state.sim, dt);
-      const sounds: Sound[] = stepped.contacts.map((c) => c.kind);
+      const sounds: Sound[] = stepped.contacts.map((c) => ({
+        kind: c.kind,
+        // 900 u/s is about as hard as anything hits anything here
+        intensity: Math.min(1, Math.max(0.12, c.speed / 900)),
+      }));
       const flightTime = state.flightTime + dt;
       const paper = stepped.sim.world.paper;
 

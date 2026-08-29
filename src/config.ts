@@ -49,13 +49,17 @@ export const FULL_POWER_PULL = 200;
 /** Below this, in SCREEN px, a pointerup was a tap and not a shot. */
 export const MIN_PULL_PX = 12;
 /** How far the paper visibly draws back out of the bin at full power. */
-export const MAX_DRAW_BACK = 26;
+export const MAX_DRAW_BACK = 34;
 
 /** The preview covers this much simulated flight and no more, at every level.
  *  It is the game's difficulty lever: aiming is given, predicting the bounce
  *  is earned. See spec/paper-jump.md §5. */
 export const PREVIEW_TIME = 0.33;
-export const PREVIEW_INTERVAL = 0.055;
+/** Sample rate along that arc. Playing the game is what set this: at 0.055 a
+ *  shot cut short by the bin showed TWO dots, which teaches nothing. Sampling
+ *  three times as densely makes the arc legible without extending the horizon
+ *  by a millisecond --- the player learns the gesture, not the answer. */
+export const PREVIEW_INTERVAL = 0.03;
 
 // -------------------------------------------------------------------- bins
 

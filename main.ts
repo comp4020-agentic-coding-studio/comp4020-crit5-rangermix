@@ -1,6 +1,7 @@
 // Wiring only. Everything that decides anything lives in src/game.ts; this
 // file owns the things a pure reducer must not: the canvas, the clock, the
 // pointer, the DOM overlay and localStorage.
+import { playSound, unlockAudio } from "./src/audio.ts";
 import { BEST_KEY, FULL_POWER_PULL } from "./src/config.ts";
 import { initial, reduce } from "./src/game.ts";
 import type { GameEvent, GameState } from "./src/game.ts";
@@ -49,7 +50,9 @@ const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matc
 let state: GameState = initial(Math.floor(Math.random() * 0x100000000), loadBest(), reducedMotion);
 
 const send = (event: GameEvent): void => {
-  state = reduce(state, event).state;
+  const { state: next, sounds } = reduce(state, event);
+  state = next;
+  for (const sound of sounds) playSound(sound);
 };
 
 // ------------------------------------------------------------------ canvas
@@ -70,6 +73,11 @@ window.addEventListener("resize", resize);
 window.addEventListener("orientationchange", resize);
 
 // ------------------------------------------------------------------- input
+
+// Browsers will not start audio before a gesture, so the first touch of the
+// game is also what turns the sound on.
+canvas.addEventListener("pointerdown", unlockAudio, { once: false });
+canvas.addEventListener("keydown", unlockAudio, { once: false });
 
 attachPointer(canvas, send, () => bounds.scale);
 

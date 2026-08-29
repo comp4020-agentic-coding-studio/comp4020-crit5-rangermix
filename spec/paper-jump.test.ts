@@ -265,9 +265,9 @@ describe("trajectory preview", () => {
     }
   });
 
-  it("shows at most six dots, however long the shot would fly", () => {
+  it("shows a bounded number of dots, however long the shot would fly", () => {
     const most = Math.floor(PREVIEW_TIME / PREVIEW_INTERVAL);
-    expect(most).toBe(6);
+    expect(most).toBe(11);
     for (let angle = 5; angle <= 175; angle += 5) {
       expect(simulate(launched(angle, 1), PREVIEW_TIME, PREVIEW_INTERVAL).length).toBeLessThanOrEqual(
         most,
@@ -648,5 +648,41 @@ describe("aiming", () => {
     const before = driftX(moving.sim.world.target, moving.sim.world.t);
     const later = play(moving, { type: "aimStart" }, { type: "tick", dt: 0.5 });
     expect(driftX(later.sim.world.target, later.sim.world.t)).not.toBeCloseTo(before, 3);
+  });
+});
+
+// ------------------------------------------------------- the no-words rule
+//
+// A sensor, not a contract test. The brief forbids instructions anywhere on
+// screen, and prose is the easiest thing in the world to add later "just to
+// help" --- so the built page is held to an allowlist of every string it is
+// permitted to ship.
+
+import { readFileSync } from "node:fs";
+import { JSDOM } from "jsdom";
+
+describe("the page teaches itself", () => {
+  const doc = new JSDOM(readFileSync("dist/index.html", "utf8")).window.document;
+
+  it("ships no instructional prose", () => {
+    // Everything the design allows on screen: the title, the source credit,
+    // and the four lines of the end screen. Nothing explains how to play.
+    const allowed = ["paper jump", "source", "level:", "score:", "max combo:", "click to restart"];
+    let left = (doc.body.textContent ?? "").replace(/\s+/g, " ").trim();
+    for (const phrase of allowed) left = left.split(phrase).join("");
+    // digits, the score separator and whitespace are the only survivors
+    left = left.replace(/[0-9/\s]/g, "");
+    expect(left, "unexpected text shipped on the page").toBe("");
+  });
+
+  it("keeps the overlay to its three elements plus the landmark", () => {
+    expect(doc.querySelector("#lives")).toBeTruthy();
+    expect(doc.querySelector("#score")).toBeTruthy();
+    expect(doc.querySelector("h1")?.textContent?.trim()).toBe("paper jump");
+    expect(doc.querySelector("nav a")).toBeTruthy();
+  });
+
+  it("hides the end screen until there is an end to show", () => {
+    expect(doc.querySelector("#end")?.hasAttribute("hidden")).toBe(true);
   });
 });
