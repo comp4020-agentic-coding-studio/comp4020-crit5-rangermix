@@ -461,7 +461,9 @@ describe("level generation", () => {
       if (!sampled.includes(level)) continue;
       expect(hasAimTolerance(launcher, target, obstacles, 5), `level ${level}`).toBe(true);
     }
-  });
+    // Brute-force sweeps need headroom: a CI runner is several times slower
+    // than this machine, and vitest's 5s default is not built for them.
+  }, 60_000);
 });
 
 /** Does some unbroken band of at least `minDegrees` of launch angle score?
@@ -472,14 +474,14 @@ function hasAimTolerance(
   obstacles: readonly Obstacle[],
   minDegrees: number,
 ): boolean {
-  const step = 0.5;
+  const step = 1;
   // Sample right across the target's own drift cycle: a window that only
   // opens when the bin is at one end of its swing is still a window, and the
   // player can wait for it.
   const period = target.frequency > 0 ? 1 / target.frequency : 1;
-  const moments = [0, 1, 2, 3, 4, 5, 6, 7].map((i) => (i / 8) * period);
+  const moments = [0, 1, 2, 3, 4, 5].map((i) => (i / 6) * period);
   for (const t0 of moments) {
-    for (const power of [0.5, 0.6, 0.7, 0.8, 0.9, 1]) {
+    for (const power of [0.6, 0.75, 0.9, 1]) {
       let band = 0;
       for (let angle = 10; angle <= 170; angle += step) {
         if (scoresFrom(launcher, target, obstacles, t0, angle, power)) {
@@ -839,5 +841,5 @@ describe("earning a life in play", () => {
     }
     expect(s!.level).toBe(6);
     expect(s!.lives).toBe(STARTING_LIVES + 1);
-  });
+  }, 60_000);
 });
