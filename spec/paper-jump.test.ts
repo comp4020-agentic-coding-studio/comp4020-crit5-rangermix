@@ -796,3 +796,48 @@ describe("earning lives back", () => {
     expect(built.querySelectorAll("#lives .dot").length).toBe(MAX_LIVES);
   });
 });
+
+describe("earning a life in play", () => {
+  it("hands one back on reaching level 6", () => {
+    // The end-to-end version of the rule above: five real captures, driven
+    // through the reducer exactly as a player would.
+    let s: GameState | null = initial(7);
+    const scoreOnce = (state: GameState): GameState | null => {
+      for (let angle = 10; angle <= 170; angle += 0.5) {
+        for (const power of [0.6, 0.7, 0.8, 0.9, 1]) {
+          const a = (angle * Math.PI) / 180;
+          const pull = {
+            x: Math.cos(a) * FULL_POWER_PULL * power,
+            y: Math.sin(a) * FULL_POWER_PULL * power,
+          };
+          let attempt = play(
+            state,
+            { type: "aimStart" },
+            { type: "aimMove", pull, pullPx: 200 },
+            { type: "aimEnd" },
+          );
+          for (let i = 0; i < 2000 && attempt.phase === "flight"; i++) {
+            attempt = reduce(attempt, { type: "tick", dt: 1 / 60 }).state;
+          }
+          if (attempt.level > state.level) {
+            for (let i = 0; i < 200 && attempt.phase === "panning"; i++) {
+              attempt = reduce(attempt, { type: "tick", dt: 1 / 60 }).state;
+            }
+            return attempt;
+          }
+        }
+      }
+      return null;
+    };
+
+    for (let i = 0; i < 5 && s; i++) {
+      const before = s.lives;
+      s = scoreOnce(s);
+      expect(s, `could not score on level ${i + 1}`).not.toBeNull();
+      // the award lands on level 6 and nowhere before it
+      expect(s!.lives).toBe(s!.level === 6 ? before + 1 : before);
+    }
+    expect(s!.level).toBe(6);
+    expect(s!.lives).toBe(STARTING_LIVES + 1);
+  });
+});
