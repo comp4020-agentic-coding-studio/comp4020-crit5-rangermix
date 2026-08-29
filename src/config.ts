@@ -86,3 +86,10 @@ export const POPUP_RISE = 60;
 export const ATTRACT_CYCLE = 2.6;
 
 export const BEST_KEY = "paper-jump:best";
+
+/** The most simulated time one frame may catch up on. A backgrounded tab or a
+ *  stalled main thread must not fast-forward a flight, and must not spiral. */
+export const MAX_FRAME = 0.25;
+
+/** How much of its spin the paper keeps through a bounce. Cosmetic. */
+export const SPIN_RETENTION = 0.7;
