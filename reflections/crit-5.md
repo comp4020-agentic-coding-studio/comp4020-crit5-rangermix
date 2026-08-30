@@ -2,28 +2,10 @@
 
 ## What was the breakthrough that moved the work forward?
 
-Building a measuring instrument instead of tuning by feel. A test asserting
-every generated level was reachable failed on level 17, and my instinct was to
-change numbers until it went green. What actually moved the work was stopping
-to ask what "too hard" even means.
-
-My first attempt at answering measured the wrong thing entirely. Counting the
-fraction of random launches that score sounds obviously right, and it says a
-bin sitting directly overhead is hard — when in fact that is the easiest shot
-in the game for a person, because you just throw it up. Switching to aim
-tolerance, the widest span of launch angles that still lands the shot, gave me
-a number in degrees I could hold directly against how precisely a thumb can
-aim. Two of the changes that came out of it — fewer obstacles, and much calmer
-obstacle drift — I would not have found by playing for an hour, because they
-only show up as a curve across tiers.
+The breakthrough this week is mainly the probe. After playing the demo after first round of implementation I was wondering whether I can assess the difficulty of the game objectively - initially the game felt harder than I thought. While I was not sure on that, I read through the output of claude and surprisingly it built a difficulty probe itself without me asking at all. The probe measures the range of shooting angles and calculate success rate based on simulations, which I thought I had to do some math calculation / proving to make the probe work. That was a real surprise.
 
 ## What did this work change about who I want to be as a software developer?
 
-I want to be someone who notices when they are optimising a proxy. The density
-metric was reasonable, cheap to compute, and quietly wrong, and no test output
-would ever have told me so — it would just have produced a game that felt bad
-for reasons I could not name.
+I always wanted to be a game developer even since touching computer in primary school. I even consider majoring in game development for my bachelor degree, unfortuanately they cancelled it that year. I have done some game development myself as an amateur but none of them was successful. Looking back now I think I had two problems: one is starting too big without a plan and I ended up losing the direction of what to do exactly, another is focusing too much on the coding / technical stuff which is fun but doesn't contribute to the fun of the game at all. I'm glad this crit exercise exist which avoids both problem - I need to focus on a simple game with not too much effort, and not to worry about implementation at all - and I'm very happy with the outcome. I've always enjoyed simple games like this and now I feel like I'm able to create some great games.
 
-I also want to hold on to the distinction this week made concrete. A test
-proved the fourth miss ends the run. Only playing showed me the preview was
-drawing two dots. Both matter, and they catch completely different things.
+p.s. One game I really liked and tried to replicate was "Physics Balls", available both on ios and play store. This game was inspired by that and I'd love to share it with whoever's reading this.
